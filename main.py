@@ -65,7 +65,7 @@ def generate_ai_script_and_metadata():
         "Line 2: Punchy, natural conversational 2-sentence commentary (25-35 words) with pauses (...) for a gaming Short.\n"
         "Line 3: Bold 4-word on-screen hook caption in ALL CAPS (no emojis, no quotes)."
     )
-    res = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+    res = client.models.generate_content(model="gemini-3.8-flash", contents=prompt)
     lines = [l.strip() for l in res.text.strip().split("\n") if l.strip()]
     title = lines[0][:85]
     voice_text = lines[1] if len(lines) > 1 else "Look closely at the background details in GTA 6... Rockstar rebuilt the NPC AI from scratch."
