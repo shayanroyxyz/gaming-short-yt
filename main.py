@@ -1,8 +1,8 @@
-import os, random, asyncio, textwrap, subprocess, edge_tts
+import os, random, asyncio, textwrap, subprocess, requests, edge_tts
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-import google.generativeai as genai
+from google import genai
 
 def validate_env():
     required = ["GEMINI_API_KEY", "YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"]
@@ -11,42 +11,47 @@ def validate_env():
         raise RuntimeError(f"Missing GitHub Secrets: {missing}")
 
 def fetch_and_slice_clip():
-    queries = [
-        "ytsearch5:GTA 6 trailer details breakdown",
-        "ytsearch5:GTA 6 vs real life comparison",
-        "ytsearch5:GTA 6 hidden easter eggs",
-        "ytsearch5:GTA 5 realistic physics mod gameplay"
-    ]
-    q = random.choice(queries)
-    print("Searching & downloading via Android client:", q)
-    subprocess.run([
-        "yt-dlp",
-        "--extractor-args", "youtube:player_client=android,ios",
-        "--match-filter", "duration > 20 & duration < 300",
-        "--max-downloads", "1",
-        "-f", "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]/b",
-        "--merge-output-format", "mp4",
-        "-o", "full_source.mp4",
-        q
-    ], check=False)
+    api_url = "https://archive.org/advancedsearch.php?q=Grand+Theft+Auto+VI+OR+GTA+6+gameplay+trailer&fl[]=identifier&rows=20&output=json"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    r = requests.get(api_url, headers=headers, timeout=20).json()
+    docs = r.get("response", {}).get("docs", [])
+    random.shuffle(docs)
 
-    if not os.path.exists("full_source.mp4"):
-        raise RuntimeError("Download failed - no mp4 created.")
+    downloaded = False
+    for doc in docs:
+        ident = doc.get("identifier")
+        if not ident:
+            continue
+        meta = requests.get(f"https://archive.org/metadata/{ident}", headers=headers, timeout=15).json()
+        for f in meta.get("files", []):
+            name = f.get("name", "")
+            size = int(f.get("size", 0) or 0)
+            if name.endswith(".mp4") and 1_000_000 < size < 150_000_000:
+                dl_url = f"https://archive.org/download/{ident}/{name}"
+                print("Downloading verified MP4:", dl_url)
+                res = subprocess.run(["curl", "-L", "-f", "-A", headers["User-Agent"], dl_url, "-o", "full_source.mp4"])
+                if res.returncode == 0 and os.path.exists("full_source.mp4") and os.path.getsize("full_source.mp4") > 500_000:
+                    downloaded = True
+                    break
+        if downloaded:
+            break
+
+    if not downloaded:
+        raise RuntimeError("Could not download an MP4 from archive search.")
 
     probe = subprocess.check_output([
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", "full_source.mp4"
     ]).decode().strip()
     dur = float(probe)
-    start_sec = random.randint(3, max(4, int(dur) - 20))
+    start_sec = random.randint(2, max(3, int(dur) - 19))
     subprocess.run([
         "ffmpeg", "-y", "-ss", str(start_sec), "-t", "17",
         "-i", "full_source.mp4", "-c:v", "libx264", "-preset", "ultrafast", "-an", "raw.mp4"
     ], check=True)
 
 def generate_ai_script_and_metadata():
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     topics = [
         "insane NPC crowd density and beach physics in GTA 6",
         "hidden Vice City map details spotted in GTA 6",
@@ -60,7 +65,7 @@ def generate_ai_script_and_metadata():
         "Line 2: Punchy, natural conversational 2-sentence commentary (25-35 words) with pauses (...) for a gaming Short.\n"
         "Line 3: Bold 4-word on-screen hook caption in ALL CAPS (no emojis, no quotes)."
     )
-    res = model.generate_content(prompt)
+    res = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
     lines = [l.strip() for l in res.text.strip().split("\n") if l.strip()]
     title = lines[0][:85]
     voice_text = lines[1] if len(lines) > 1 else "Look closely at the background details in GTA 6... Rockstar rebuilt the NPC AI from scratch."
