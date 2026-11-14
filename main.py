@@ -1,114 +1,92 @@
 import os
 import random
 import subprocess
-import json
+import requests
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import google.generativeai as genai
 
-# Configuration Constants
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-YOUTUBE_CLIENT_ID = os.environ.get("YOUTUBE_CLIENT_ID")
-YOUTUBE_CLIENT_SECRET = os.environ.get("YOUTUBE_CLIENT_SECRET")
-YOUTUBE_REFRESH_TOKEN = os.environ.get("YOUTUBE_REFRESH_TOKEN")
-
-def generate_metadata(topic):
-    """Generates viral titles and descriptions using Gemini API"""
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+def fetch_clip():
+    with open("sources.txt") as f:
+        feeds = [line.strip() for line in f if line.strip()]
     
-    prompt = (
-        f"Write a catchy, high-retention YouTube Short title with hashtags "
-        f"and a short description for a viral GTA 6 clip about: {topic}. "
-        f"Return only the title on the first line, followed by the description."
-    )
-    response = model.generate_content(prompt)
-    lines = response.text.strip().split('\n')
-    title = lines[0][:90] # Max 90 chars for YouTube Shorts title safety
-    description = "\n".join(lines[1:]) if len(lines) > 1 else "#shorts #gta6"
-    return title, description
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GTA6Bot/1.0"}
+    video_urls = []
 
-def transform_video(input_path, output_path):
-    """
-    Applies heavy automated FFmpeg transformations to bypass Reused Content filters:
-    - Randomized vertical crop (9:16 aspect ratio)
-    - Slight contrast/saturation adjustment
-    - Audio track replacement/remixing layer
-    """
-    # Randomize crop parameters slightly to ensure unique hashes every time
+    for feed in feeds:
+        try:
+            r = requests.get(feed, headers=headers, timeout=15).json()
+            for post in r.get("data", {}).get("children", []):
+                data = post.get("data", {})
+                if data.get("is_video") and data.get("media", {}).get("reddit_video", {}).get("duration", 99) <= 58:
+                    video_urls.append((data.get("title", "GTA 6 Clip"), "https://www.reddit.com" + data.get("permalink")))
+        except Exception as e:
+            print("Feed error:", e)
+
+    if not video_urls:
+        raise RuntimeError("No valid short videos found in feeds.")
+
+    topic, chosen_url = random.choice(video_urls)
+    print("Downloading:", topic, chosen_url)
+    subprocess.run([
+        "yt-dlp",
+        "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
+        "--merge-output-format", "mp4",
+        "-o", "raw.mp4",
+        chosen_url
+    ], check=True)
+    return topic
+
+def transform_video():
     crop_w = random.choice([880, 900, 920])
     crop_h = random.choice([1560, 1600, 1630])
-    
-    ffmpeg_cmd = [
-        "ffmpeg", "-y", "-i", input_path,
-        "-vf", f"crop={crop_w}:{crop_h},eq=contrast=1.15:saturation=1.2,scale=1080:1920",
+    speed = random.choice(["0.97", "1.03"])
+    subprocess.run([
+        "ffmpeg", "-y", "-i", "raw.mp4",
+        "-vf", f"setpts={speed}*PTS,scale=1080:1920:force_original_aspect_ratio=increase,crop={crop_w}:{crop_h},scale=1080:1920,eq=contrast=1.12:saturation=1.18",
+        "-af", "asetrate=44100*1.02,aresample=44100",
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
         "-c:a", "aac", "-b:a", "128k",
-        output_path
-    ]
-    
-    print(f"Running transformation command: {' '.join(ffmpeg_cmd)}")
-    subprocess.run(ffmpeg_cmd, check=True)
+        "final.mp4"
+    ], check=True)
 
-def upload_to_youtube(video_path, title, description):
-    """Uploads the transformed video using YouTube Data API v3 credentials"""
-    from google.oauth2.credentials import Credentials
-    
+def generate_metadata(topic):
+    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+    model = genai.GenerativeModel("gemini-2.5-flash")
+    res = model.generate_content(
+        f"Topic: {topic}\nWrite 1 viral YouTube Short title under 85 chars with #shorts #gta6 on line 1, and a 2-line description on lines 2-3."
+    )
+    lines = [l.strip() for l in res.text.strip().split("\n") if l.strip()]
+    return lines[0][:85], "\n".join(lines[1:]) or "#shorts #gta6"
+
+def upload_video(title, description):
     creds = Credentials(
         token=None,
-        refresh_token=YOUTUBE_REFRESH_TOKEN,
-        client_id=YOUTUBE_CLIENT_ID,
-        client_secret=YOUTUBE_CLIENT_SECRET,
+        refresh_token=os.environ["YOUTUBE_REFRESH_TOKEN"],
+        client_id=os.environ["YOUTUBE_CLIENT_ID"],
+        client_secret=os.environ["YOUTUBE_CLIENT_SECRET"],
         token_uri="https://oauth2.googleapis.com/token"
     )
-    
     youtube = build("youtube", "v3", credentials=creds)
-    
-    body = {
-        "snippet": {
-            "title": title,
-            "description": description,
-            "tags": ["GTA6", "GTA6Trailer", "GamingShorts", "ViceCity", "Shorts"],
-            "categoryId": "20" # Gaming category
-        },
-        "status": {
-            "privacyStatus": "public",
-            "selfDeclaredMadeForKids": False
-        }
-    }
-    
-    media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
-    request = youtube.videos().insert(
+    req = youtube.videos().insert(
         part="snippet,status",
-        body=body,
-        media_body=media
+        body={
+            "snippet": {
+                "title": title,
+                "description": description,
+                "tags": ["GTA6", "GTA6Clips", "Shorts"],
+                "categoryId": "20"
+            },
+            "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
+        },
+        media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True)
     )
-    
-    response = None
-    while response is None:
-        status, response = request.next_chunk()
-        if status:
-            print(f"Upload progress: {int(status.progress() * 100)}%")
-            
-    print(f"Successfully uploaded! Video ID: {response.get('id')}")
+    resp = req.execute()
+    print("Uploaded Video ID:", resp.get("id"))
 
 if __name__ == "__main__":
-    print("Initializing Hermes-Style Automation Agent...")
-    
-    # Example raw source clip (Replace or source dynamically via script)
-    # For testing, ensure a sample raw video file exists in your repository root
-    raw_source = "raw_sample.mp4"
-    processed_output = "final_output.mp4"
-    
-    if os.path.exists(raw_source):
-        topic_name = "GTA 6 physics and graphics easter egg breakdown"
-        print(f"Generating AI metadata for topic: {topic_name}")
-        title, description = generate_metadata(topic_name)
-        
-        print("Transforming video to bypass duplicate hashes...")
-        transform_video(raw_source, processed_output)
-        
-        print("Uploading to YouTube channel...")
-        upload_to_youtube(processed_output, title, description)
-    else:
-        print(f"Error: Raw source video '{raw_source}' not found. Please provide a source clip.")
+    topic = fetch_clip()
+    transform_video()
+    title, desc = generate_metadata(topic)
+    upload_video(title, desc)
