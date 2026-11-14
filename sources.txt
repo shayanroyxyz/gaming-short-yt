@@ -1,3 +1,9 @@
-https://www.reddit.com/r/GTA6/top.json?t=week&limit=25
-https://www.reddit.com/r/GTA6/hot.json?limit=25
-https://www.reddit.com/r/GTA/top.json?t=week&limit=25
+# Add only gameplay clips you own or have permission/licensing to use.
+# Use DIRECT downloadable HTTPS video-file links (not a YouTube page, Reddit feed, or HTML page).
+# One source per line:
+# DIRECT_VIDEO_URL | GTA 5 or GTA 6 topic for original commentary | creator name + licence/permission credit
+#
+# Example format only (not a real source):
+# https://cdn.example.org/clip.mp4 | GTA 5 driving physics compared with GTA 6 expectations | CreatorName, CC BY 4.0, https://creativecommons.org/licenses/by/4.0/
+#
+# The workflow intentionally stops until you add at least one real, permitted video URL.
