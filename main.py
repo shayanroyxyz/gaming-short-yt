@@ -1,4 +1,4 @@
-import os, random, asyncio, textwrap, subprocess, requests, edge_tts
+import os, time, random, asyncio, textwrap, subprocess, requests, edge_tts
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -26,10 +26,10 @@ def fetch_and_slice_clip():
         for f in meta.get("files", []):
             name = f.get("name", "")
             size = int(f.get("size", 0) or 0)
-            if name.endswith(".mp4") and 1_000_000 < size < 150_000_000:
+            if name.endswith(".mp4") and 1_000_000 < size < 35_000_000:
                 dl_url = f"https://archive.org/download/{ident}/{name}"
                 print("Downloading verified MP4:", dl_url)
-                res = subprocess.run(["curl", "-L", "-f", "-A", headers["User-Agent"], dl_url, "-o", "full_source.mp4"])
+                res = subprocess.run(["curl", "-m", "60", "-L", "-f", "-A", headers["User-Agent"], dl_url, "-o", "full_source.mp4"])
                 if res.returncode == 0 and os.path.exists("full_source.mp4") and os.path.getsize("full_source.mp4") > 500_000:
                     downloaded = True
                     break
@@ -65,12 +65,23 @@ def generate_ai_script_and_metadata():
         "Line 2: Punchy, natural conversational 2-sentence commentary (25-35 words) with pauses (...) for a gaming Short.\n"
         "Line 3: Bold 4-word on-screen hook caption in ALL CAPS (no emojis, no quotes)."
     )
-    res = client.models.generate_content(model="gemini-3.8-flash", contents=prompt)
-    lines = [l.strip() for l in res.text.strip().split("\n") if l.strip()]
-    title = lines[0][:85]
-    voice_text = lines[1] if len(lines) > 1 else "Look closely at the background details in GTA 6... Rockstar rebuilt the NPC AI from scratch."
-    hook_caption = lines[2].replace(chr(39), "").replace(chr(34), "") if len(lines) > 2 else "GTA 6 HIDDEN DETAIL"
-    return title, voice_text, hook_caption
+    for model_name in ["gemini-3.8-flash", "gemini-3.8-flash-lite"]:
+        for attempt in range(3):
+            try:
+                res = client.models.generate_content(model=model_name, contents=prompt)
+                lines = [l.strip() for l in res.text.strip().split("\n") if l.strip()]
+                if len(lines) >= 3:
+                    return lines[0][:85], lines[1], lines[2].replace(chr(39), "").replace(chr(34), "")
+            except Exception as e:
+                print(f"{model_name} attempt {attempt+1} failed: {e}")
+                time.sleep(4)
+
+    fallbacks = [
+        ("Did You Spot This Insane GTA 6 Detail? #shorts #gta6", "Look closely at the background NPCs in GTA 6... Rockstar completely rebuilt their AI behavior from the ground up.", "GTA 6 HIDDEN DETAIL"),
+        ("Why GTA 6 Physics Beat Every Open World Game #shorts #gta6", "Watch how the lighting and reflections react in real time... Vice City looks almost indistinguishable from real life.", "INSANE GTA 6 GRAPHICS"),
+        ("Nobody Noticed This Secret In Vice City! #shorts #gta6", "Pause right here and check the background... Rockstar hid tiny Leonida map clues in plain sight.", "SECRET VICE CITY CLUE")
+    ]
+    return random.choice(fallbacks)
 
 async def create_humanoid_voiceover(text):
     communicate = edge_tts.Communicate(text, "en-US-AndrewMultilingualNeural", rate="+8%", pitch="-2Hz")
