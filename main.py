@@ -5,6 +5,14 @@ from googleapiclient.http import MediaFileUpload
 from google import genai
 from analyzer import analyze_channel_algorithm
 
+SUBREDDITS = {
+    "GTA 6": ["GTA6"],
+    "GTA 5": ["GTAV", "gtaonline"],
+    "GTA San Andreas": ["sanandreas", "GTA"],
+    "GTA 4": ["GTAIV", "GTA"],
+    "GTA 3": ["GTA3", "GTA"]
+}
+
 TOPIC_MAP = {
     "GTA San Andreas": "crazy hidden details and AI secrets in GTA San Andreas",
     "GTA 6": "mind-blowing Vice City NPC density and beach physics in GTA 6",
@@ -19,73 +27,71 @@ def validate_env():
     if missing:
         raise RuntimeError(f"Missing GitHub Secrets: {missing}")
 
-def setup_cookies():
-    ck = os.environ.get("YOUTUBE_COOKIES", "").strip()
-    if ck:
-        open("cookies.txt", "w").write(ck)
-        return "cookies.txt"
-    return None
-
-def fetch_hd_gta_clip(idx, game_name, cookie_file):
+def fetch_social_gta_clip(idx, game_name):
     out_raw = f"raw_{idx}.mp4"
     out_src = f"src_{idx}.mp4"
     for f in [out_raw, out_src]:
         if os.path.exists(f):
             os.remove(f)
 
+    headers = {"User-Agent": "android:com.shayan.gtashorts:v2.0 (by /u/gtaclipcurator)"}
+    subs = SUBREDDITS.get(game_name, ["GTA6", "GTA"]) + ["GTA6", "GTA", "GTAV"]
     candidates = []
-    # 1. Load any custom X (Twitter) / Dailymotion URLs from sources.txt
-    if os.path.exists("sources.txt"):
-        file_urls = [l.strip() for l in open("sources.txt") if l.strip() and not l.startswith("#")]
-        random.shuffle(file_urls)
-        candidates.extend(file_urls)
 
-    # 2. If burner YouTube cookies exist, search crisp 1080p/720p gameplay directly on YouTube
-    if cookie_file:
-        candidates.append(f"ytsearch8:{game_name} 4k 60fps gameplay no commentary")
+    for sub in dict.fromkeys(subs):
+        for sort_mode in ["hot", "top"]:
+            url = f"https://old.reddit.com/r/{sub}/{sort_mode}.json?t=month&limit=40"
+            try:
+                r = requests.get(url, headers=headers, timeout=12)
+                if r.status_code != 200:
+                    continue
+                posts = r.json().get("data", {}).get("children", [])
+                for p in posts:
+                    d = p.get("data", {})
+                    if d.get("is_video") and not d.get("over_18"):
+                        rv = (d.get("media") or {}).get("reddit_video") or {}
+                        fb_url = rv.get("fallback_url")
+                        dur = float(rv.get("duration") or 0)
+                        height = int(rv.get("height") or 0)
+                        if fb_url and 8 <= dur <= 120 and height >= 360:
+                            candidates.append((d.get("permalink", ""), fb_url, dur, height, d.get("title", "")))
+            except Exception as e:
+                print(f"Subreddit {sub} fetch skip: {e}")
+        if len(candidates) >= 8:
+            break
 
-    # 3. Public Dailymotion HD search (works with zero accounts on GitHub Actions)
-    dm_q = requests.utils.quote(f"{game_name} gameplay")
-    candidates.append(f"https://www.dailymotion.com/search/{dm_q}/videos")
+    if not candidates:
+        raise RuntimeError(f"No >=360p GTA clips found for {game_name}")
 
+    random.shuffle(candidates)
     downloaded = False
-    for target in candidates:
-        cmd = [
+    for permalink, fb_url, dur, height, post_title in candidates:
+        print(f"[Video {idx}] Downloading {height}p clip: {post_title[:55]}")
+        # Use yt-dlp on permalink first (gets clean 480p/720p stream), fallback to direct fallback_url
+        res = subprocess.run([
             "yt-dlp", "--no-warnings", "--socket-timeout", "15",
-            "--match-title", "(?i)(gta|grand theft auto|vice city|san andreas)",
-            "--reject-title", "(?i)(review|reaction|podcast|explained|episode)",
-            "--match-filter", "duration > 20 & duration < 900",
-            "--playlist-items", "1-6",
-            "--max-downloads", "1",
-            "-f", "bv*[height>=720][ext=mp4]+ba[ext=m4a]/b[height>=720][ext=mp4]/bv*[height>=720]/b",
-            "--merge-output-format", "mp4",
-            "-o", out_src,
-            target
-        ]
-        if cookie_file and ("ytsearch" in target or "youtu" in target):
-            cmd.extend(["--cookies", cookie_file])
-
-        print(f"[Video {idx}] Fetching HD source:", target)
-        subprocess.run(cmd, timeout=60)
-        if os.path.exists(out_src) and os.path.getsize(out_src) > 1_000_000:
+            "--user-agent", headers["User-Agent"],
+            "-f", "bv*[height>=360][height<=720]/bv*[height>=360]/b",
+            "-o", out_src, f"https://www.reddit.com{permalink}"
+        ], timeout=35)
+        if res.returncode != 0 or not os.path.exists(out_src):
+            subprocess.run(["curl", "-m", "25", "-L", "-f", "-s", "-A", headers["User-Agent"], fb_url, "-o", out_src])
+        if os.path.exists(out_src) and os.path.getsize(out_src) > 250_000:
             downloaded = True
             break
 
     if not downloaded:
-        raise RuntimeError(f"No HD 720p+ clip downloaded for {game_name}. Add X/Twitter clip URLs to sources.txt or set YOUTUBE_COOKIES.")
+        raise RuntimeError(f"Download failed for video {idx}")
 
     probe = subprocess.check_output([
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", out_src
     ]).decode().strip()
     dur = float(probe)
-    mid_start = max(3, int(dur * 0.25))
-    mid_end = max(mid_start + 1, int(dur * 0.75) - 11)
-    start_sec = random.randint(mid_start, mid_end)
-
+    start_sec = 0 if dur <= 12 else random.randint(1, max(2, int(dur) - 11))
     subprocess.run([
         "ffmpeg", "-y", "-ss", str(start_sec), "-t", "10",
-        "-i", out_src, "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-an", out_raw
+        "-i", out_src, "-c:v", "libx264", "-preset", "ultrafast", "-an", out_raw
     ], check=True)
     return out_raw
 
@@ -95,11 +101,11 @@ def clean_ascii(text):
 def generate_ai_script(game_name, topic_desc, algo_report):
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     prompt = (
-        f"You are optimizing a YouTube Shorts channel. Recent channel performance:\n{algo_report}\n\n"
+        f"You are optimizing a USA-targeted YouTube Shorts channel. Recent stats:\n{algo_report}\n\n"
         f"Create a high-retention 10-second Short for {game_name} ({topic_desc}).\n"
         "Output exactly 3 plain-text lines (NO emojis, NO quotes, NO markdown):\n"
         f"Line 1: Curiosity YouTube Short title under 72 chars about {game_name} ending with #shorts #gta\n"
-        "Line 2: Fast, punchy 2-sentence gaming voiceover (18-24 words total) that loops smoothly.\n"
+        "Line 2: Punchy 2-sentence American gaming commentary (18-24 words total) that loops smoothly.\n"
         "Line 3: Bold 3-4 word hook caption in ALL CAPS."
     )
     for model_name in ["gemini-3.8-flash", "gemini-3.8-flash-lite"]:
@@ -126,23 +132,22 @@ async def make_voice(text, out_mp3):
 def render_short(idx, raw_mp4, voice_mp3, hook_caption):
     cap_file = f"cap_{idx}.txt"
     final_mp4 = f"final_{idx}.mp4"
-    wrapped = "\n".join(textwrap.wrap(clean_ascii(hook_caption), width=18))
+    wrapped = "\n".join(textwrap.wrap(clean_ascii(hook_caption), width=15))
     open(cap_file, "w").write(wrapped)
 
-    # Crisp 1080x1920 Lanczos upscale + unsharp + bold bottom-safe caption at y=1420
+    # Bold yellow/black caption cleanly positioned at bottom safe zone (y=1380, above Shorts title UI)
     vf = (
-        f"[0:v]setpts=0.96*PTS,scale=1080:1920:flags=lanczos:force_original_aspect_ratio=increase,crop=1080:1920,"
-        f"unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.12:saturation=1.16,"
+        f"[0:v]setpts=0.96*PTS,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
+        f"eq=contrast=1.14:saturation=1.20,"
         f"drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile={cap_file}:"
-        f"fontcolor=yellow:borderw=7:bordercolor=black:box=1:boxcolor=black@0.55:boxborderw=14:"
-        f"fontsize=66:line_spacing=12:x=(w-text_w)/2:y=1420[v]"
+        f"fontcolor=yellow:borderw=7:bordercolor=black:fontsize=74:line_spacing=14:x=(w-text_w)/2:y=1380[v]"
     )
     subprocess.run([
         "ffmpeg", "-y", "-i", raw_mp4, "-i", voice_mp3,
         "-filter_complex", vf,
         "-map", "[v]", "-map", "1:a", "-shortest",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
-        "-c:a", "aac", "-b:a", "160k", final_mp4
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k", final_mp4
     ], check=True)
     return final_mp4
 
@@ -167,7 +172,7 @@ def upload_video(final_mp4, title, description, delay_minutes=0):
             "snippet": {
                 "title": title,
                 "description": description,
-                "tags": ["GTA", "GTASanAndreas", "GTA6", "GTA5", "GTA4", "RockstarGames", "Shorts"],
+                "tags": ["GTA", "GTA6", "GTASanAndreas", "GTA5", "GTA4", "RockstarGames", "Shorts"],
                 "categoryId": "20"
             },
             "status": status_body
@@ -180,14 +185,13 @@ def upload_video(final_mp4, title, description, delay_minutes=0):
 
 if __name__ == "__main__":
     validate_env()
-    cookie_file = setup_cookies()
     algo = analyze_channel_algorithm()
     top_games = algo["best_games"][:2]
     base_delay = 0 if algo["hours_since_last"] >= 3.0 else int((3.0 - algo["hours_since_last"]) * 60) + 5
 
     for i, game_name in enumerate(top_games, start=1):
         topic_desc = TOPIC_MAP.get(game_name, "hidden secrets and crazy physics in GTA")
-        raw_mp4 = fetch_hd_gta_clip(i, game_name, cookie_file)
+        raw_mp4 = fetch_social_gta_clip(i, game_name)
         title, voice_text, hook_caption = generate_ai_script(game_name, topic_desc, algo["report"])
         voice_mp3 = f"voice_{i}.mp3"
         asyncio.run(make_voice(voice_text, voice_mp3))
