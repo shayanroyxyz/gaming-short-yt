@@ -223,8 +223,24 @@ def generate_ai_script(game_name, topic_desc, algo_report):
     )
 
 async def make_voice(text, out_mp3):
-    comm = edge_tts.Communicate(text, "en-US-AndrewMultilingualNeural", rate="+10%", pitch="-2Hz")
-    await comm.save(out_mp3)
+    for voice in ["en-US-AndrewNeural", "en-US-GuyNeural", "en-US-BrianNeural"]:
+        try:
+            comm = edge_tts.Communicate(text, voice, rate="+8%")
+            await comm.save(out_mp3)
+            if os.path.exists(out_mp3) and os.path.getsize(out_mp3) > 1000:
+                return
+        except Exception as e:
+            print(f"edge-tts {voice} failed: {e}")
+    try:
+        from gtts import gTTS
+        gTTS(text=text, lang="en", tld="com").save(out_mp3)
+        if os.path.exists(out_mp3) and os.path.getsize(out_mp3) > 1000:
+            print("Used gTTS fallback voiceover")
+            return
+    except Exception as e:
+        print(f"gTTS failed: {e}")
+    subprocess.run(["espeak-ng", "-v", "en-us", "-s", "165", "-w", "/tmp/fb.wav", text], check=True)
+    subprocess.run(["ffmpeg", "-y", "-i", "/tmp/fb.wav", out_mp3], check=True)
 
 def render_short(idx, raw_mp4, voice_mp3, hook_caption):
     cap_file = f"cap_{idx}.txt"

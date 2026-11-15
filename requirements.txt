@@ -3,4 +3,5 @@ google-auth-oauthlib
 google-genai
 yt-dlp[default]
 edge-tts
+gTTS
 requests
