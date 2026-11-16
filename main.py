@@ -5,6 +5,7 @@ import random
 import asyncio
 import datetime
 import subprocess
+import requests
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -15,40 +16,21 @@ WORK = "/tmp/build"
 VOICE = "en-US-AndrewMultilingualNeural"
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
-GAMES = [
-    {
-        "name": "GTA 6",
-        "channel": "https://www.youtube.com/@RockstarGames/videos",
-        "tags": ["GTA 6", "GTA VI", "Vice City", "GTA 6 Trailer", "GTA 6 Gameplay", "Rockstar Games", "GTA 6 Leaks", "GTA 6 News", "Gaming", "Shorts"],
-        "fallback_script": {
-            "title": "The GTA 6 Detail That Changes EVERYTHING! #shorts",
-            "description": "Subscribe for daily GTA 6 news and breakdowns! This hidden detail in Vice City will blow your mind. #gta6 #vicecity #gaming #shorts",
-            "hook": "This one GTA 6 mechanic completely breaks everything we knew about Rockstar games.",
-            "clips": [
-                "Look at the water physics in the trailer. Every ripple reacts perfectly to the boat wake.",
-                "Now look at the NPC density on the beach. It is triple what GTA 5 could handle.",
-                "And the traffic lights downtown actually sync up realistically. This game is insane."
-            ]
-        }
-    },
-    {
-        "name": "GTA 5",
-        "channel": "https://www.youtube.com/@NoCopyrightGameplays/videos",
-        "tags": ["GTA 5", "GTA 5 Myths", "GTA 5 Gameplay", "GTA 5 Stunts", "Gaming", "Shorts"],
-        "fallback_script": {
-            "title": "3 GTA 5 Stunts That BROKE Physics! #shorts",
-            "description": "Insane GTA 5 physics moments. Subscribe for more gaming shorts! #gta5 #gaming #shorts",
-            "hook": "Watch these three crazy GTA 5 moments that literally broke the game engine.",
-            "clips": [
-                "First, look at how the ragdoll physics react when launching off Mount Chiliad.",
-                "Second, watch what happens when NPC traffic glitches during a five-star chase.",
-                "And third, this pilot threads a jet through the tightest tunnel on the map."
-            ]
-        }
+DEFAULT_GTA = {
+    "name": "GTA 6",
+    "channel": "https://www.youtube.com/@RockstarGames/videos",
+    "tags": ["GTA 6", "GTA VI", "Vice City", "Gaming", "Shorts"],
+    "fallback_script": {
+        "title": "The GTA 6 Detail That Changes EVERYTHING! #shorts",
+        "description": "Subscribe for daily GTA 6 news! #gta6 #vicecity #gaming #shorts",
+        "hook": "This one GTA 6 mechanic completely breaks everything we knew about Rockstar games.",
+        "clips": [
+            "Look at the water physics in the trailer. Every ripple reacts perfectly to the boat wake.",
+            "Now look at the NPC density on the beach. It is triple what GTA 5 could handle.",
+            "And the traffic lights downtown actually sync up realistically. This game is insane."
+        ]
     }
-]
-
-GAME_WEIGHTS = [0.9, 0.1] 
+}
 
 def log(msg):
     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -67,40 +49,35 @@ def valid_video(path):
         return min(w, h) >= 360 and get_duration(path) >= 5.0
     except: return False
 
-def download_youtube_fallback(game):
+def download_video(url):
     output_path = os.path.join(WORK, "source.mp4")
-    log(f"Downloading gameplay for {game['name']} with PO Token...")
+    log(f"Downloading from URL: {url}")
     cmd = [
         "yt-dlp",
         "--extractor-args", "youtube:player_client=web;getpot_bgutil_baseurl=http://127.0.0.1:4416",
-        "--playlist-end", "3",
-        "--match-filter", "duration > 30 & !is_live",
+        "--download-sections", "*0:00-4:00",
         "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]",
         "-o", output_path,
-        game["channel"]
+        url
     ]
     try:
-        subprocess.run(cmd, check=True, timeout=180, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(cmd, check=True, timeout=240, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if valid_video(output_path): return output_path
-    except: pass
+    except Exception as e:
+        log(f"Download failed or timed out: {e}")
     return None
 
 def safe_auto_edit_and_slice(src):
     log("Running Auto-Editor to cut dead space...")
     edited_path = os.path.join(WORK, "edited_source.mp4")
-    cmd_edit = [
-        "auto-editor", src, 
-        "--edit", "audio:threshold=0.04",
-        "--margin", "0.2sec",
-        "-o", edited_path
-    ]
+    cmd_edit = ["auto-editor", src, "--edit", "audio:threshold=0.04", "--margin", "0.2sec", "-o", edited_path]
     try:
-        subprocess.run(cmd_edit, check=True, timeout=300)
+        subprocess.run(cmd_edit, check=True, timeout=120)
     except Exception as e:
         log(f"Auto-editor failed, using original: {e}")
         edited_path = src
 
-    log("Slicing 3 segments from the clean edit...")
+    log("Slicing 3 segments...")
     segments = []
     for i in range(3):
         seg_path = os.path.join(WORK, f"seg_{i}.mp4")
@@ -110,31 +87,87 @@ def safe_auto_edit_and_slice(src):
         segments.append(seg_path)
     return segments
 
-def generate_script(game):
-    log(f"Generating ANALYTICAL Script for {game['name']}...")
+# --- THE 3-TIER AI CASCADE ---
+def call_gemini(prompt):
     try:
-        client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-        prompt = f"""
-        You are a professional gaming analyst. Write a YouTube Shorts script for {game['name']}. 
-        CRITICAL RULE: You must add significant commentary, analysis, or a unique theory. 
-        Do NOT just describe what happens on screen. Explain WHY it matters or what it means for the game.
-        
-        Return strict JSON format only: 
-        {{
-            "title": "<Under 90 chars, massive clickbait, MUST end with #shorts>",
-            "description": "<2 sentences of analysis. Include 'Subscribe for more!' and 5 hashtags>",
-            "hook": "<One controversial or mind-blowing analytical sentence>",
-            "clips": ["<clip 1: analysis>", "<clip 2: analysis>", "<clip 3: analysis>"]
-        }}
-        """
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key: return None
+        client = genai.Client(api_key=api_key)
         res = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-        data = json.loads(res.text[res.text.find("{"):res.text.rfind("}")+1])
-        if "description" not in data or not data["description"]:
-            data["description"] = game["fallback_script"]["description"]
+        return res.text
+    except Exception as e:
+        log(f"Gemini failed (Limit reached?): {e}")
+        return None
+
+def call_pollinations(prompt):
+    try:
+        url = "https://text.pollinations.ai/openai"
+        headers = {"Content-Type": "application/json"}
+        payload = {"model": "openai", "messages": [{"role": "user", "content": prompt}], "temperature": 0.8}
+        r = requests.post(url, headers=headers, json=payload, timeout=30)
+        r.raise_for_status()
+        return r.json()['choices'][0]['message']['content']
+    except Exception as e:
+        log(f"Pollinations failed: {e}")
+        return None
+
+def call_groq(prompt):
+    try:
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key: return None
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        payload = {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.8, "response_format": {"type": "json_object"}}
+        r = requests.post(url, headers=headers, json=payload, timeout=30)
+        r.raise_for_status()
+        return r.json()['choices'][0]['message']['content']
+    except Exception as e:
+        log(f"Groq failed: {e}")
+        return None
+
+def generate_script(game_name, rules=""):
+    log(f"Generating VIRAL Script for {game_name}...")
+    
+    prompt = f"""
+    You are a top-tier YouTube Shorts viral strategist. Write a script for {game_name}.
+    CRITICAL CAMPAIGN RULES: {rules}
+    
+    ALGORITHM TRICKS YOU MUST USE:
+    1. The Hook must create a Curiosity Gap (e.g., "This changes everything...").
+    2. The last sentence of clip 3 MUST seamlessly loop back to the hook.
+    3. Use high-energy American gaming slang.
+    
+    Return ONLY a valid JSON object. Do not use markdown. Format: 
+    {{
+        "title": "<Max 80 chars. Extreme clickbait. MUST end with #shorts and any required tags>",
+        "description": "<2 sentences with SEO keywords and 5 hashtags. Include required links/info>",
+        "hook": "<The curiosity gap sentence>",
+        "clips": ["<clip 1: deep dive>", "<clip 2: more context>", "<clip 3: the loop closer>"]
+    }}
+    """
+    
+    # The Cascade: Try Gemini -> Pollinations -> Groq
+    response_text = call_gemini(prompt)
+    if not response_text:
+        log("Switching to Pollinations backup...")
+        response_text = call_pollinations(prompt)
+    if not response_text:
+        log("Switching to Groq backup...")
+        response_text = call_groq(prompt)
+    
+    if not response_text:
+        log("All AI brains failed. Using fallback script.")
+        return DEFAULT_GTA["fallback_script"]
+
+    try:
+        # Extract JSON safely
+        start = response_text.find("{")
+        end = response_text.rfind("}") + 1
+        data = json.loads(response_text[start:end])
         return data
     except Exception as e:
-        log(f"LLM failed, using fallback: {e}")
-        return game["fallback_script"]
+        log(f"Failed to parse AI JSON: {e}. Using fallback.")
+        return DEFAULT_GTA["fallback_script"]
 
 async def tts_async(text, out):
     comm = edge_tts.Communicate(text, VOICE, rate="+8%", pitch="-2Hz")
@@ -170,25 +203,55 @@ def upload(path, title, description, tags):
     if DRY_RUN: return
     creds = Credentials(token=None, refresh_token=os.environ["YOUTUBE_REFRESH_TOKEN"], client_id=os.environ["YOUTUBE_CLIENT_ID"], client_secret=os.environ["YOUTUBE_CLIENT_SECRET"], token_uri="https://oauth2.googleapis.com/token")
     yt = build("youtube", "v3", credentials=creds)
+    
+    publish_time = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    
     body = {
         "snippet": {"title": title[:100], "description": description[:4900], "tags": tags, "categoryId": "20"}, 
-        "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
+        "status": {"privacyStatus": "private", "publishAt": publish_time, "selfDeclaredMadeForKids": False}
     }
     media = MediaFileUpload(path, mimetype="video/mp4", chunksize=1024*1024*5, resumable=True)
     yt.videos().insert(part="snippet,status", body=body, media_body=media).execute()
-    log(f"Uploaded: {title}")
+    log(f"Successfully scheduled for US Peak: {title}")
 
 def main():
     os.makedirs(WORK, exist_ok=True)
-    game = random.choices(GAMES, weights=GAME_WEIGHTS, k=1)[0]
-    log(f"Selected Game for this run: {game['name']}")
     
-    src = download_youtube_fallback(game)
+    manual_url = os.environ.get("CAMPAIGN_URL", "").strip()
+    manual_game = os.environ.get("GAME_OVERRIDE", "").strip()
+    manual_rules = os.environ.get("GUIDELINES", "").strip()
+    
+    json_url, json_game, json_rules = None, None, None
+    if not manual_url and os.path.exists("campaigns.json"):
+        try:
+            with open("campaigns.json", "r") as f:
+                campaigns = json.load(f)
+                active_campaigns = [c for c in campaigns if c.get("active")]
+                if active_campaigns:
+                    chosen = random.choice(active_campaigns)
+                    json_url = chosen.get("video_url")
+                    json_game = chosen.get("game")
+                    json_rules = chosen.get("rules", "")
+                    log("RANDOMIZED MODE: Picked campaign from JSON.")
+        except Exception as e:
+            log(f"Failed to read campaigns.json: {e}")
+
+    if manual_url:
+        log("MANUAL MODE ACTIVATED")
+        url, game, rules = manual_url, manual_game or "Gaming", manual_rules
+    elif json_url:
+        log("JSON CAMPAIGN MODE ACTIVATED")
+        url, game, rules = json_url, json_game, json_rules
+    else:
+        log("AUTO MODE: Defaulting to GTA 6")
+        url, game, rules = DEFAULT_GTA["channel"], DEFAULT_GTA["name"], ""
+
+    src = download_video(url)
     if not src:
         log("No source video found. Aborting.")
         return
 
-    script = generate_script(game)
+    script = generate_script(game, rules)
     segments = safe_auto_edit_and_slice(src)
     
     full_text = script["hook"] + " " + " ".join(script["clips"])
@@ -207,7 +270,7 @@ def main():
     final_path = os.path.join(WORK, "final.mp4")
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", joined, "-i", audio_path, "-vf", "ass=subs.ass", "-c:v", "libx264", "-c:a", "aac", "-shortest", final_path], check=True, cwd=WORK)
     
-    upload(final_path, script["title"], script["description"], game["tags"])
+    upload(final_path, script["title"], script["description"], ["gaming", "shorts", game])
 
 if __name__ == "__main__":
     main()
