@@ -1,8 +1,26 @@
 name: 24/7 YouTube Auto-Publisher
 on:
   schedule:
-    - cron: '0 13,17,21,1 * * *'
+    # 8 runs daily (every 3 hours across USA peak cycles)
+    - cron: '0 1,4,7,10,13,16,19,22 * * *'
   workflow_dispatch: 
+    inputs:
+      campaign_url:
+        description: 'Source URL (Video to clip)'
+        required: false
+        default: ''
+      game_override:
+        description: 'Game / Niche (e.g. CoD MW4, WoW, Roblox, Playnaut)'
+        required: false
+        default: ''
+      campaign_rules:
+        description: 'Mandatory Hashtags / Disclosures (e.g. #Sponsored #playpulp)'
+        required: false
+        default: ''
+      clip_length:
+        description: 'Target duration in seconds (default: 25)'
+        required: false
+        default: '25'
 
 concurrency:
   group: auto-upload
@@ -11,7 +29,7 @@ concurrency:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 8 # Kills job automatically if stuck to save quota
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,13 +48,15 @@ jobs:
           npm install
           npx tsc
           node build/main.js &
-          sleep 5
+          sleep 4
       - name: Run pipeline
         env:
           GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
           YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          IG_COOKIES:            ${{ secrets.IG_COOKIES }}
-          X_COOKIES:             ${{ secrets.X_COOKIES }}
+          CAMPAIGN_URL:          ${{ github.event.inputs.campaign_url }}
+          GAME_OVERRIDE:         ${{ github.event.inputs.game_override }}
+          CAMPAIGN_RULES:        ${{ github.event.inputs.campaign_rules }}
+          CLIP_LENGTH:           ${{ github.event.inputs.clip_length }}
         run: python main.py
