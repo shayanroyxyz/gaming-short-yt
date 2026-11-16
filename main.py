@@ -14,20 +14,14 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google import genai
 
-try:
-    from analyzer import analyze_channel_algorithm
-except ImportError:
-    def analyze_channel_algorithm(): return {"batch_size": 1}
-
 WORK = "/tmp/build"
 VOICE = "en-US-AndrewMultilingualNeural"
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
-# --- CONTENT MIX FOR GTA 6 LAUNCH WEEK ---
 GAMES = [
     {
         "name": "GTA 6",
-        "channel": "https://www.youtube.com/@RockstarGames/videos", # Pulls official trailers
+        "channel": "https://www.youtube.com/@RockstarGames/videos",
         "tags": ["GTA6", "GTAVI", "ViceCity", "GTA6Trailer", "Gaming", "Shorts"],
         "fallback_script": {
             "title": "GTA 6 Details You Missed in the Trailer! #shorts",
@@ -69,7 +63,6 @@ GAMES = [
     }
 ]
 
-# 70% chance GTA 6, 20% chance GTA 5, 10% chance Minecraft
 GAME_WEIGHTS = [0.7, 0.2, 0.1] 
 
 def log(msg):
@@ -102,7 +95,7 @@ def setup_cookies():
 def download_youtube_fallback(game):
     output_path = os.path.join(WORK, "source.mp4")
     log(f"Downloading gameplay for {game['name']}...")
-    cmd = ["yt-dlp", "--playlist-end", "3", "--match-filter", "duration > 30 & !is_live", "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "-o", output_path, game["channel"]]
+    cmd = ["yt-dlp", "--impersonate", "chrome", "--playlist-end", "3", "--match-filter", "duration > 30 & !is_live", "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "-o", output_path, game["channel"]]
     try:
         subprocess.run(cmd, check=True, timeout=180, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if valid_video(output_path): return output_path
@@ -118,8 +111,8 @@ def generate_script(game):
     log(f"Generating viral script for {game['name']}...")
     try:
         client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-        # Aggressive prompt tuned for YPP retention
-        prompt = f"Write a fast-paced 3-clip YouTube Shorts script for {game['name']}. Return strict JSON: {{\"title\": \"<100 chars, clickbait but true, include #shorts\", \"hook\": \"one sentence high-retention hook\", \"clips\": [\"clip 1\", \"clip 2\", \"clip 3\"]}}. The text must be spoken by a narrator. Do not use emojis."
+        # Enforced #shorts in the prompt to fix the 0 views issue
+        prompt = f"Write a fast-paced 3-clip YouTube Shorts script for {game['name']}. Return strict JSON: {{\"title\": \"<100 chars, clickbait, MUST end with #shorts>\", \"hook\": \"one sentence high-retention hook\", \"clips\": [\"clip 1\", \"clip 2\", \"clip 3\"]}}. The text must be spoken by a narrator. Do not use emojis."
         res = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         return json.loads(res.text[res.text.find("{"):res.text.rfind("}")+1])
     except Exception as e:
@@ -167,8 +160,6 @@ def upload(path, title, tags):
 
 def main():
     os.makedirs(WORK, exist_ok=True)
-    
-    # ALGORITHMIC SELECTION: Pick game based on weights (GTA 6 gets 70%)
     game = random.choices(GAMES, weights=GAME_WEIGHTS, k=1)[0]
     log(f"Selected Game for this run: {game['name']}")
     
@@ -181,7 +172,6 @@ def main():
     full_text = script["hook"] + " " + " ".join(script["clips"])
     audio_path = synthesize(full_text, os.path.join(WORK, "voice.mp3"))
     
-    # Slice 3 parts
     segments = []
     for i in range(3):
         seg_path = os.path.join(WORK, f"seg_{i}.mp4")
