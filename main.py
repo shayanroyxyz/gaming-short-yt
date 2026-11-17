@@ -16,10 +16,11 @@ WORK = "/tmp/build"
 VOICE = "en-US-AndrewMultilingualNeural"
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
+# FIX: Changed channel URLs to ytsearch1: for instant grabbing of fresh videos
 GAMES = [
     {
         "name": "GTA 6",
-        "channel": "https://www.youtube.com/@RockstarGames/videos",
+        "channel": "ytsearch1:GTA 6 trailer breakdown gameplay no commentary",
         "tags": ["GTA 6", "GTA VI", "Vice City", "Gaming", "Shorts"],
         "fallback_script": {
             "title": "The GTA 6 Detail That Changes EVERYTHING! #shorts",
@@ -34,7 +35,7 @@ GAMES = [
     },
     {
         "name": "Minecraft",
-        "channel": "https://www.youtube.com/@OrbiGameplay/videos",
+        "channel": "ytsearch1:Minecraft no commentary gameplay parkour",
         "tags": ["Minecraft", "MinecraftFacts", "Gaming", "Shorts"],
         "fallback_script": {
             "title": "3 Insane Minecraft Clutches! #shorts",
@@ -49,7 +50,7 @@ GAMES = [
     },
     {
         "name": "Roblox",
-        "channel": "https://www.youtube.com/@NoCopyrightGameplays/videos",
+        "channel": "ytsearch1:Roblox no commentary gameplay obby",
         "tags": ["Roblox", "RobloxFacts", "Gaming", "Shorts"],
         "fallback_script": {
             "title": "Secret Roblox Moments Nobody Expected! #shorts",
@@ -85,19 +86,21 @@ def valid_video(path):
 
 def download_video(url):
     output_path = os.path.join(WORK, "source.mp4")
-    log(f"Downloading from URL: {url}")
-    # FIX: Added strict filter to REJECT streamer faces, reactions, and vlogs
+    log(f"Downloading from URL/Search: {url}")
+    
+    # FIX: Added --playlist-end 1, lowered to 720p, and cut to 3 mins for speed
     cmd = [
         "yt-dlp",
         "--extractor-args", "youtube:player_client=web;getpot_bgutil_baseurl=http://127.0.0.1:4416",
-        "--download-sections", "*0:00-4:00",
-        "--match-filter", "!is_live & title !*= 'reaction' & title !*= 'facecam' & title !*= 'vlog' & title !*= 'podcast' & title !*= 'talking'",
-        "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]",
+        "--playlist-end", "1", 
+        "--download-sections", "*0:00-3:00",
+        "--match-filter", "!is_live & title !*= 'reaction' & title !*= 'facecam' & title !*= 'vlog' & title !*= 'podcast'",
+        "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]",
         "-o", output_path,
         url
     ]
     try:
-        subprocess.run(cmd, check=True, timeout=240, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(cmd, check=True, timeout=180, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if valid_video(output_path): return output_path
     except Exception as e:
         log(f"Download failed or timed out: {e}")
@@ -213,10 +216,8 @@ def upload(path, title, description, tags):
     media = MediaFileUpload(path, mimetype="video/mp4", chunksize=1024*1024*5, resumable=True)
     req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
     
-    # FIX: This will force GitHub to print the actual YouTube Video ID
     response = req.execute()
     log(f"✅ SUCCESSFULLY UPLOADED TO YOUTUBE! Video ID: {response['id']}")
-    log(f"Check your channel now.")
 
 def main():
     os.makedirs(WORK, exist_ok=True)
