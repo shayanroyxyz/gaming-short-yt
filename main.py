@@ -64,7 +64,6 @@ GAMES = [
     }
 ]
 
-# 70% GTA 6 Priority
 GAME_WEIGHTS = [0.7, 0.15, 0.15]
 
 def log(msg):
@@ -87,10 +86,12 @@ def valid_video(path):
 def download_video(url):
     output_path = os.path.join(WORK, "source.mp4")
     log(f"Downloading from URL: {url}")
+    # FIX: Added strict filter to REJECT streamer faces, reactions, and vlogs
     cmd = [
         "yt-dlp",
         "--extractor-args", "youtube:player_client=web;getpot_bgutil_baseurl=http://127.0.0.1:4416",
         "--download-sections", "*0:00-4:00",
+        "--match-filter", "!is_live & title !*= 'reaction' & title !*= 'facecam' & title !*= 'vlog' & title !*= 'podcast' & title !*= 'talking'",
         "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]",
         "-o", output_path,
         url
@@ -205,17 +206,17 @@ def upload(path, title, description, tags):
     creds = Credentials(token=None, refresh_token=os.environ["YOUTUBE_REFRESH_TOKEN"], client_id=os.environ["YOUTUBE_CLIENT_ID"], client_secret=os.environ["YOUTUBE_CLIENT_SECRET"], token_uri="https://oauth2.googleapis.com/token")
     yt = build("youtube", "v3", credentials=creds)
     
-    # FORCE INSTANT PUBLIC UPLOAD
     body = {
         "snippet": {"title": title[:100], "description": description[:4900], "tags": tags, "categoryId": "20"}, 
-        "status": {
-            "privacyStatus": "public",
-            "selfDeclaredMadeForKids": False
-        }
+        "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
     }
     media = MediaFileUpload(path, mimetype="video/mp4", chunksize=1024*1024*5, resumable=True)
-    yt.videos().insert(part="snippet,status", body=body, media_body=media).execute()
-    log(f"Successfully Uploaded PUBLIC: {title}")
+    req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
+    
+    # FIX: This will force GitHub to print the actual YouTube Video ID
+    response = req.execute()
+    log(f"✅ SUCCESSFULLY UPLOADED TO YOUTUBE! Video ID: {response['id']}")
+    log(f"Check your channel now.")
 
 def main():
     os.makedirs(WORK, exist_ok=True)
