@@ -16,11 +16,29 @@ WORK = "/tmp/build"
 VOICE = "en-US-AndrewMultilingualNeural"
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
-# FIX: Changed channel URLs to ytsearch1: for instant grabbing of fresh videos
+# --- ROBUST GAME SOURCES ---
+# Using ytsearch5: to get top results instead of a single specific query
 GAMES = [
     {
-        "name": "GTA 6",
-        "channel": "ytsearch1:GTA 6 trailer breakdown gameplay no commentary",
+        "name": "GTA V",
+        "search_query": "ytsearch5:GTA 5 gameplay 4k no commentary",
+        "fallback_url": "https://www.youtube.com/watch?v=QkkoHAzjnUs", # Safe GTA V clip
+        "tags": ["GTA 5", "GTAV", "Gaming", "Shorts"],
+        "fallback_script": {
+            "title": "GTA 5 Secrets You Never Noticed! #shorts",
+            "description": "Subscribe for daily GTA content! #gta5 #gaming #shorts",
+            "hook": "These three GTA 5 details completely change how you play.",
+            "clips": [
+                "First, look at the water physics. Every ripple reacts perfectly to the boat wake.",
+                "Second, the NPC density on the beach is triple what you see on console.",
+                "And third, the traffic lights downtown actually sync up realistically."
+            ]
+        }
+    },
+    {
+        "name": "GTA 6 Trailer",
+        "search_query": "ytsearch5:GTA 6 trailer 4k",
+        "fallback_url": "https://www.youtube.com/watch?v=QdBZY2fkU-0", # Official Trailer 1
         "tags": ["GTA 6", "GTA VI", "Vice City", "Gaming", "Shorts"],
         "fallback_script": {
             "title": "The GTA 6 Detail That Changes EVERYTHING! #shorts",
@@ -35,10 +53,11 @@ GAMES = [
     },
     {
         "name": "Minecraft",
-        "channel": "ytsearch1:Minecraft no commentary gameplay parkour",
-        "tags": ["Minecraft", "MinecraftFacts", "Gaming", "Shorts"],
+        "search_query": "ytsearch5:Minecraft parkour gameplay 4k no commentary",
+        "fallback_url": "https://www.youtube.com/watch?v=1V8Xp5n8Q1E",
+        "tags": ["Minecraft", "Gaming", "Shorts"],
         "fallback_script": {
-            "title": "3 Insane Minecraft Clutches! #shorts",
+            "title": "Insane Minecraft Clutches! #shorts",
             "description": "Subscribe for daily gaming shorts! #minecraft #gaming #shorts",
             "hook": "You won't believe these rare Minecraft gameplay moments.",
             "clips": [
@@ -47,25 +66,10 @@ GAMES = [
                 "And third, redstone TNT cannons launching a player thousands of blocks."
             ]
         }
-    },
-    {
-        "name": "Roblox",
-        "channel": "ytsearch1:Roblox no commentary gameplay obby",
-        "tags": ["Roblox", "RobloxFacts", "Gaming", "Shorts"],
-        "fallback_script": {
-            "title": "Secret Roblox Moments Nobody Expected! #shorts",
-            "description": "Subscribe for daily gaming shorts! #roblox #gaming #shorts",
-            "hook": "Check out these three crazy Roblox clips players just discovered.",
-            "clips": [
-                "First, look at this hidden secret room tucked underneath the map.",
-                "Second, watch how this physics glitch launches players across the server.",
-                "And third, check out this pro shortcut that skips the hardest stage."
-            ]
-        }
     }
 ]
 
-GAME_WEIGHTS = [0.7, 0.15, 0.15]
+GAME_WEIGHTS = [0.5, 0.3, 0.2] # 50% GTA 5, 30% GTA 6 Trailer, 20% Minecraft
 
 def log(msg):
     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -84,31 +88,41 @@ def valid_video(path):
         return min(w, h) >= 360 and get_duration(path) >= 5.0
     except: return False
 
-def download_video(url):
+def download_video(game):
     output_path = os.path.join(WORK, "source.mp4")
-    log(f"Downloading from URL/Search: {url}")
+    log(f"Searching and downloading: {game['search_query']}")
     
-    # FIX: Added --playlist-end 1, lowered to 720p, and cut to 3 mins for speed
+    # FIX: Removed strict match filters, added ignore-errors, limited to 3 minutes
     cmd = [
         "yt-dlp",
         "--extractor-args", "youtube:player_client=web;getpot_bgutil_baseurl=http://127.0.0.1:4416",
-        "--playlist-end", "1", 
+        "--playlist-end", "1",
         "--download-sections", "*0:00-3:00",
-        "--match-filter", "!is_live & title !*= 'reaction' & title !*= 'facecam' & title !*= 'vlog' & title !*= 'podcast'",
+        "--ignore-errors",
+        "--no-warnings",
         "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]",
         "-o", output_path,
-        url
+        game["search_query"]
     ]
     try:
         subprocess.run(cmd, check=True, timeout=180, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if valid_video(output_path): return output_path
     except Exception as e:
-        log(f"Download failed or timed out: {e}")
+        log(f"Search download failed: {e}. Trying direct fallback URL...")
+        # FALLBACK: If search fails, use the direct URL
+        cmd[cmd.index(game["search_query"])] = game["fallback_url"]
+        try:
+            subprocess.run(cmd, check=True, timeout=180, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if valid_video(output_path): return output_path
+        except Exception as e2:
+            log(f"Fallback URL also failed: {e2}")
     return None
 
+# --- PROFESSIONAL AUTO-EDITOR ---
 def safe_auto_edit_and_slice(src):
     log("Running Auto-Editor to cut dead space...")
     edited_path = os.path.join(WORK, "edited_source.mp4")
+    # auto-editor removes silence based on audio threshold
     cmd_edit = ["auto-editor", src, "--edit", "audio:threshold=0.04", "--margin", "0.2sec", "-o", edited_path]
     try:
         subprocess.run(cmd_edit, check=True, timeout=120)
@@ -116,21 +130,35 @@ def safe_auto_edit_and_slice(src):
         log(f"Auto-editor failed, using original: {e}")
         edited_path = src
 
-    log("Slicing 3 segments...")
+    log("Slicing 3 segments with Professional Filters (Audio Normalization, Dynamic Zoom)...")
     segments = []
     for i in range(3):
         seg_path = os.path.join(WORK, f"seg_{i}.mp4")
         start = random.randint(0, max(1, int(get_duration(edited_path)) - 15))
         
+        # Visual: Dynamic Zoom, Random Horizontal Flip for Content ID bypass
         visual_filter = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920"
+        visual_filter += ",zoompan=z='min(zoom+0.0015,1.5)':d=1:s=1080x1920" # Slow zoom effect
         if random.choice([True, False]):
             visual_filter += ",hflip"
         
-        cmd_slice = ["ffmpeg", "-y", "-loglevel", "error", "-ss", str(start), "-i", edited_path, "-t", "12", "-vf", f"{visual_filter},scale=iw*1.1:ih*1.1", "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", seg_path]
+        # Audio: Normalize volume, remove background hiss (if any)
+        audio_filter = "loudnorm=I=-14:TP=-1.5:LRA=11,highpass=f=80,lowpass=f=12000"
+
+        cmd_slice = [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-ss", str(start), "-i", edited_path, "-t", "12",
+            "-vf", visual_filter,
+            "-af", audio_filter,
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            seg_path
+        ]
         subprocess.run(cmd_slice, check=True)
         segments.append(seg_path)
     return segments
 
+# --- UNLIMITED AI CASCADE ---
 def call_gemini(prompt):
     try:
         api_key = os.environ.get("GEMINI_API_KEY")
@@ -138,7 +166,9 @@ def call_gemini(prompt):
         client = genai.Client(api_key=api_key)
         res = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         return res.text
-    except: return None
+    except Exception as e:
+        log(f"Gemini failed: {e}")
+        return None
 
 def call_pollinations(prompt):
     try:
@@ -148,7 +178,26 @@ def call_pollinations(prompt):
         r = requests.post(url, headers=headers, json=payload, timeout=30)
         r.raise_for_status()
         return r.json()['choices'][0]['message']['content']
-    except: return None
+    except Exception as e:
+        log(f"Pollinations failed: {e}")
+        return None
+
+def call_keyless_ai(prompt):
+    # Unlimited free OpenAI-compatible endpoint
+    try:
+        url = "https://keylessai.thryx.workers.dev/v1/chat/completions"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.8
+        }
+        r = requests.post(url, headers=headers, json=payload, timeout=30)
+        r.raise_for_status()
+        return r.json()['choices'][0]['message']['content']
+    except Exception as e:
+        log(f"KeylessAI failed: {e}")
+        return None
 
 def generate_script(game_name, rules=""):
     log(f"Generating VIRAL Script for {game_name}...")
@@ -165,14 +214,24 @@ def generate_script(game_name, rules=""):
     """
     
     response_text = call_gemini(prompt)
-    if not response_text: response_text = call_pollinations(prompt)
-    if not response_text: return GAMES[0]["fallback_script"]
+    if not response_text:
+        log("Switching to Pollinations (Unlimited)...")
+        response_text = call_pollinations(prompt)
+    if not response_text:
+        log("Switching to KeylessAI (Unlimited)...")
+        response_text = call_keyless_ai(prompt)
+    
+    if not response_text:
+        log("All AI brains failed. Using fallback script.")
+        return GAMES[0]["fallback_script"]
 
     try:
         start = response_text.find("{")
         end = response_text.rfind("}") + 1
         return json.loads(response_text[start:end])
-    except: return GAMES[0]["fallback_script"]
+    except Exception as e:
+        log(f"Failed to parse AI JSON: {e}. Using fallback.")
+        return GAMES[0]["fallback_script"]
 
 async def tts_async(text, out):
     comm = edge_tts.Communicate(text, VOICE, rate="+8%", pitch="-2Hz")
@@ -243,17 +302,22 @@ def main():
 
     if manual_url:
         log("MANUAL MODE ACTIVATED")
-        url, game, rules = manual_url, manual_game or "Gaming", manual_rules
+        # If manual URL is provided, download directly (no search)
+        src = os.path.join(WORK, "source.mp4")
+        subprocess.run(["yt-dlp", "--extractor-args", "youtube:player_client=web;getpot_bgutil_baseurl=http://127.0.0.1:4416", "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "-o", src, manual_url], check=True)
+        game, rules = manual_game or "Gaming", manual_rules
     elif json_url:
         log("JSON CAMPAIGN MODE ACTIVATED")
-        url, game, rules = json_url, json_game, json_rules
+        src = os.path.join(WORK, "source.mp4")
+        subprocess.run(["yt-dlp", "--extractor-args", "youtube:player_client=web;getpot_bgutil_baseurl=http://127.0.0.1:4416", "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "-o", src, json_url], check=True)
+        game, rules = json_game, json_rules
     else:
         selected_game = random.choices(GAMES, weights=GAME_WEIGHTS, k=1)[0]
         log(f"AUTO MODE: Selected {selected_game['name']} based on dynamic rotation.")
-        url, game, rules = selected_game["channel"], selected_game["name"], ""
+        src = download_video(selected_game)
+        game, rules = selected_game["name"], ""
 
-    src = download_video(url)
-    if not src:
+    if not src or not os.path.exists(src):
         log("No source video found. Aborting.")
         return
 
