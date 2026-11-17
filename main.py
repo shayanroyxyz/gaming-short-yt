@@ -16,7 +16,6 @@ WORK = "/tmp/build"
 VOICE = "en-US-AndrewMultilingualNeural"
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
-# 1. DYNAMIC GAME ROTATION (GTA 6 Heavily Prioritized)
 GAMES = [
     {
         "name": "GTA 6",
@@ -62,26 +61,11 @@ GAMES = [
                 "And third, check out this pro shortcut that skips the hardest stage."
             ]
         }
-    },
-    {
-        "name": "Fortnite",
-        "channel": "https://www.youtube.com/@NoCopyrightGameplays/videos",
-        "tags": ["Fortnite", "FortniteClips", "Gaming", "Shorts"],
-        "fallback_script": {
-            "title": "3 Insane Fortnite Builds! #shorts",
-            "description": "Subscribe for daily gaming shorts! #fortnite #gaming #shorts",
-            "hook": "Watch these three insane Fortnite moments that broke the lobby.",
-            "clips": [
-                "First, a 90s build rush that completely outplayed the enemy team.",
-                "Second, a sniper shot from across the map with no scope.",
-                "And third, a clutch victory royale with only one HP left."
-            ]
-        }
     }
 ]
 
-# GTA 6 gets 70% weight, other games share 30%
-GAME_WEIGHTS = [0.7, 0.1, 0.1, 0.1]
+# 70% GTA 6 Priority
+GAME_WEIGHTS = [0.7, 0.15, 0.15]
 
 def log(msg):
     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -143,7 +127,6 @@ def safe_auto_edit_and_slice(src):
         segments.append(seg_path)
     return segments
 
-# --- 3-TIER AI CASCADE ---
 def call_gemini(prompt):
     try:
         api_key = os.environ.get("GEMINI_API_KEY")
@@ -151,9 +134,7 @@ def call_gemini(prompt):
         client = genai.Client(api_key=api_key)
         res = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         return res.text
-    except Exception as e:
-        log(f"Gemini failed: {e}")
-        return None
+    except: return None
 
 def call_pollinations(prompt):
     try:
@@ -163,63 +144,31 @@ def call_pollinations(prompt):
         r = requests.post(url, headers=headers, json=payload, timeout=30)
         r.raise_for_status()
         return r.json()['choices'][0]['message']['content']
-    except Exception as e:
-        log(f"Pollinations failed: {e}")
-        return None
-
-def call_groq(prompt):
-    try:
-        api_key = os.environ.get("GROQ_API_KEY")
-        if not api_key: return None
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        payload = {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.8, "response_format": {"type": "json_object"}}
-        r = requests.post(url, headers=headers, json=payload, timeout=30)
-        r.raise_for_status()
-        return r.json()['choices'][0]['message']['content']
-    except Exception as e:
-        log(f"Groq failed: {e}")
-        return None
+    except: return None
 
 def generate_script(game_name, rules=""):
     log(f"Generating VIRAL Script for {game_name}...")
     prompt = f"""
-    You are a top-tier YouTube Shorts viral strategist. Write a script for {game_name}.
-    CRITICAL CAMPAIGN RULES: {rules}
-    
-    ALGORITHM TRICKS YOU MUST USE:
-    1. The Hook must create a Curiosity Gap (e.g., "This changes everything...").
-    2. The last sentence of clip 3 MUST seamlessly loop back to the hook.
-    3. Use high-energy American gaming slang.
-    
-    Return ONLY a valid JSON object. Do not use markdown. Format: 
+    Write a YouTube Shorts script for {game_name}. RULES: {rules}
+    Make the Hook a Curiosity Gap. Make the end loop to the beginning. Use gamer slang.
+    Return ONLY valid JSON: 
     {{
-        "title": "<Max 80 chars. Extreme clickbait. MUST end with #shorts and any required tags>",
-        "description": "<2 sentences with SEO keywords and 5 hashtags. Include required links/info>",
+        "title": "<Max 80 chars. Clickbait. MUST end with #shorts>",
+        "description": "<2 sentences with SEO keywords and 5 hashtags>",
         "hook": "<The curiosity gap sentence>",
-        "clips": ["<clip 1: deep dive>", "<clip 2: more context>", "<clip 3: the loop closer>"]
+        "clips": ["<clip 1>", "<clip 2>", "<clip 3: loop closer>"]
     }}
     """
     
     response_text = call_gemini(prompt)
-    if not response_text:
-        log("Switching to Pollinations backup...")
-        response_text = call_pollinations(prompt)
-    if not response_text:
-        log("Switching to Groq backup...")
-        response_text = call_groq(prompt)
-    
-    if not response_text:
-        log("All AI brains failed. Using fallback script.")
-        return GAMES[0]["fallback_script"]
+    if not response_text: response_text = call_pollinations(prompt)
+    if not response_text: return GAMES[0]["fallback_script"]
 
     try:
         start = response_text.find("{")
         end = response_text.rfind("}") + 1
         return json.loads(response_text[start:end])
-    except Exception as e:
-        log(f"Failed to parse AI JSON: {e}. Using fallback.")
-        return GAMES[0]["fallback_script"]
+    except: return GAMES[0]["fallback_script"]
 
 async def tts_async(text, out):
     comm = edge_tts.Communicate(text, VOICE, rate="+8%", pitch="-2Hz")
@@ -251,29 +200,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             start = i * 12; end = start + 12
             f.write(f"Dialogue: 0,0:00:{start:02d}.00,0:00:{end:02d}.00,Default,,0,0,0,,{line}\n")
 
-def upload(path, title, description, tags, is_manual=False):
+def upload(path, title, description, tags):
     if DRY_RUN: return
     creds = Credentials(token=None, refresh_token=os.environ["YOUTUBE_REFRESH_TOKEN"], client_id=os.environ["YOUTUBE_CLIENT_ID"], client_secret=os.environ["YOUTUBE_CLIENT_SECRET"], token_uri="https://oauth2.googleapis.com/token")
     yt = build("youtube", "v3", credentials=creds)
     
-    # OVERLAP PREVENTION LOGIC
-    if is_manual:
-        # If manual, schedule it 3 hours from now to avoid clashing with scheduled auto-runs
-        publish_time = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-        log(f"MANUAL RUN: Staggering upload to avoid overlap. Scheduling for: {publish_time}")
-        status_body = {"privacyStatus": "private", "publishAt": publish_time, "selfDeclaredMadeForKids": False}
-    else:
-        # If auto, upload Public instantly
-        log("AUTO RUN: Uploading as Public instantly.")
-        status_body = {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
-
+    # FORCE INSTANT PUBLIC UPLOAD
     body = {
         "snippet": {"title": title[:100], "description": description[:4900], "tags": tags, "categoryId": "20"}, 
-        "status": status_body
+        "status": {
+            "privacyStatus": "public",
+            "selfDeclaredMadeForKids": False
+        }
     }
     media = MediaFileUpload(path, mimetype="video/mp4", chunksize=1024*1024*5, resumable=True)
     yt.videos().insert(part="snippet,status", body=body, media_body=media).execute()
-    log(f"Successfully Uploaded: {title}")
+    log(f"Successfully Uploaded PUBLIC: {title}")
 
 def main():
     os.makedirs(WORK, exist_ok=True)
@@ -297,16 +239,13 @@ def main():
         except Exception as e:
             log(f"Failed to read campaigns.json: {e}")
 
-    is_manual = False
     if manual_url:
         log("MANUAL MODE ACTIVATED")
         url, game, rules = manual_url, manual_game or "Gaming", manual_rules
-        is_manual = True
     elif json_url:
         log("JSON CAMPAIGN MODE ACTIVATED")
         url, game, rules = json_url, json_game, json_rules
     else:
-        # DYNAMIC GAME SELECTION
         selected_game = random.choices(GAMES, weights=GAME_WEIGHTS, k=1)[0]
         log(f"AUTO MODE: Selected {selected_game['name']} based on dynamic rotation.")
         url, game, rules = selected_game["channel"], selected_game["name"], ""
@@ -335,7 +274,7 @@ def main():
     final_path = os.path.join(WORK, "final.mp4")
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", joined, "-i", audio_path, "-vf", "ass=subs.ass", "-c:v", "libx264", "-c:a", "aac", "-movflags", "+faststart", "-shortest", final_path], check=True, cwd=WORK)
     
-    upload(final_path, script["title"], script["description"], ["gaming", "shorts", game], is_manual=is_manual)
+    upload(final_path, script["title"], script["description"], ["gaming", "shorts", game])
 
 if __name__ == "__main__":
     main()
