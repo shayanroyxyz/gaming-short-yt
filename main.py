@@ -32,22 +32,27 @@ def fetch_best_available_clip(game_name, subreddits):
     headers = {"User-Agent": UA}
     candidate_urls = []
 
-    # 1. Reddit Public RSS Feeds (unblocked XML endpoint)
+    # 1. Force Reddit RSS to return ONLY v.redd.it video posts
     for sub in subreddits:
-        try:
-            r = requests.get(f"https://www.reddit.com/r/{sub}/hot/.rss?limit=35", headers=headers, timeout=15)
-            if r.status_code == 200:
-                root = ET.fromstring(r.text)
-                for entry in root.findall("{http://www.w3.org/2005/Atom}entry"):
-                    link_el = entry.find("{http://www.w3.org/2005/Atom}link")
-                    if link_el is not None and link_el.attrib.get("href"):
-                        candidate_urls.append(link_el.attrib["href"])
-        except Exception as e:
-            print("RSS skip:", sub, e)
+        for query in ["site%3Av.redd.it", "gameplay"]:
+            try:
+                rss_url = f"https://www.reddit.com/r/{sub}/search.rss?q={query}&restrict_sr=1&sort=top&t=month&limit=25"
+                r = requests.get(rss_url, headers=headers, timeout=15)
+                if r.status_code == 200:
+                    root = ET.fromstring(r.text)
+                    for entry in root.findall("{http://www.w3.org/2005/Atom}entry"):
+                        link_el = entry.find("{http://www.w3.org/2005/Atom}link")
+                        if link_el is not None and link_el.attrib.get("href"):
+                            candidate_urls.append(link_el.attrib["href"])
+            except Exception as e:
+                print("RSS skip:", sub, e)
 
+    candidate_urls = list(set(candidate_urls))
     random.shuffle(candidate_urls)
-    for url in candidate_urls[:20]:
-        print("Trying Reddit RSS post (no quality barrier):", url)
+    print(f"Found {len(candidate_urls)} Reddit video candidates")
+
+    for url in candidate_urls[:25]:
+        print("Downloading Reddit video:", url)
         if os.path.exists("full_source.mp4"):
             os.remove("full_source.mp4")
         res = subprocess.run([
@@ -56,26 +61,25 @@ def fetch_best_available_clip(game_name, subreddits):
             "--merge-output-format", "mp4",
             "-o", "full_source.mp4", url
         ])
-        if res.returncode == 0 and os.path.exists("full_source.mp4") and os.path.getsize("full_source.mp4") > 300_000:
-            print("Downloaded clip successfully from Reddit RSS!")
+        if res.returncode == 0 and os.path.exists("full_source.mp4") and os.path.getsize("full_source.mp4") > 250_000:
+            print("Downloaded clip successfully from Reddit video search!")
             return
 
-    # 2. Backup: YouTube embedded/tv client (no cookies, no quality filter)
-    q = f"ytsearch6:{game_name} gameplay moments"
-    print("Trying YouTube web_embedded/tv fallback:", q)
-    subprocess.run([
-        "yt-dlp",
-        "--extractor-args", "youtube:player-client=web_embedded,tv",
-        "--match-filter", "duration > 15 & duration < 300",
-        "--max-downloads", "1",
-        "-f", "bv*+ba/b",
-        "--merge-output-format", "mp4",
-        "-o", "full_source.mp4", q
-    ], check=False)
-
-    if os.path.exists("full_source.mp4") and os.path.getsize("full_source.mp4") > 300_000:
-        print("Downloaded clip successfully from YouTube fallback!")
-        return
+    # 2. Unblocked Wikimedia Commons Video API fallback (never blocks GitHub IPs)
+    print("Using unblocked Wikimedia Commons video fallback...")
+    wm = requests.get(
+        "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=filetype:video+game+OR+car+chase+OR+city+night&gsrnamespace=6&gsrlimit=15&prop=imageinfo&iiprop=url&format=json",
+        headers=headers, timeout=15
+    ).json()
+    pages = list(wm.get("query", {}).get("pages", {}).values())
+    random.shuffle(pages)
+    for p in pages:
+        vurl = p.get("imageinfo", [{}])[0].get("url", "")
+        if vurl.endswith((".mp4", ".webm")):
+            subprocess.run(["yt-dlp", "--user-agent", UA, "-o", "full_source.mp4", vurl])
+            if os.path.exists("full_source.mp4") and os.path.getsize("full_source.mp4") > 250_000:
+                print("Downloaded fallback video successfully!")
+                return
 
     raise RuntimeError("Could not fetch a video clip in this run.")
 
