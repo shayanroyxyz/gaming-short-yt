@@ -2,6 +2,7 @@ import os
 import re
 import json
 import random
+import time
 import asyncio
 import datetime
 import subprocess
@@ -16,8 +17,10 @@ import edge_tts
 WORK = "/tmp/build"
 VOICE = "en-US-AndrewMultilingualNeural"
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
+IG_COOKIE_FILE = "/tmp/ig_cookies.txt"
 
 X_CREATORS = ["GTA6Intel", "RockstarGames", "GTAVclips", "Minecraft", "Roblox"]
+IG_REELS = ["https://www.instagram.com/reel/DXW4z-7jiAi/"]
 
 GAMES = [
     {
@@ -28,11 +31,7 @@ GAMES = [
             "title": "GTA 5 Secrets You Never Noticed! #shorts",
             "description": "Subscribe for daily GTA content! #gta5 #gaming #shorts",
             "hook": "These three GTA 5 details completely change how you play.",
-            "clips": [
-                "First, look at the water physics. Every ripple reacts perfectly to the boat wake.",
-                "Second, the NPC density on the beach is triple what you see on console.",
-                "And third, the traffic lights downtown actually sync up realistically."
-            ]
+            "clips": ["First, look at the water physics.", "Second, the NPC density.", "And third, the traffic lights."]
         }
     },
     {
@@ -42,12 +41,8 @@ GAMES = [
         "fallback_script": {
             "title": "The GTA 6 Detail That Changes EVERYTHING! #shorts",
             "description": "Subscribe for daily GTA 6 news! #gta6 #vicecity #gaming #shorts",
-            "hook": "This one GTA 6 mechanic completely breaks everything we knew about Rockstar games.",
-            "clips": [
-                "Look at the water physics in the trailer. Every ripple reacts perfectly to the boat wake.",
-                "Now look at the NPC density on the beach. It is triple what GTA 5 could handle.",
-                "And the traffic lights downtown actually sync up realistically. This game is insane."
-            ]
+            "hook": "This one GTA 6 mechanic completely breaks everything.",
+            "clips": ["Look at the water physics.", "Now look at the NPC density.", "And the traffic lights downtown."]
         }
     }
 ]
@@ -56,6 +51,14 @@ GAME_WEIGHTS = [0.6, 0.4]
 
 def log(msg):
     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+
+def setup_ig_cookies():
+    cookies = os.environ.get("IG_COOKIES", "").strip()
+    if cookies:
+        with open(IG_COOKIE_FILE, "w") as f:
+            f.write(cookies)
+        return True
+    return False
 
 def get_duration(path):
     try:
@@ -71,8 +74,20 @@ def valid_video(path):
         return min(w, h) >= 360 and get_duration(path) >= 5.0
     except: return False
 
+def download_instagram():
+    if not os.path.exists(IG_COOKIE_FILE): return None
+    log("Tier 1: Scanning Instagram...")
+    for url in IG_REELS:
+        try:
+            output_path = os.path.join(WORK, "source.mp4")
+            cmd = ["yt-dlp", "--cookies", IG_COOKIE_FILE, "-f", "bv*[height<=480]+ba/b[height<=480]", "-o", output_path, url]
+            subprocess.run(cmd, check=True, timeout=90, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if valid_video(output_path): return output_path
+        except: pass
+    return None
+
 def download_twitter():
-    log("Tier 1: Scanning X/Twitter...")
+    log("Tier 2: Scanning X/Twitter...")
     for user in X_CREATORS:
         try:
             rss_url = f"https://fxtwitter.com/{user}/feed.xml"
@@ -80,17 +95,16 @@ def download_twitter():
             root = ET.fromstring(r.content)
             items = root.findall(".//item")
             if not items: continue
-            
             link = items[0].find("link").text
             output_path = os.path.join(WORK, "source.mp4")
-            cmd = ["yt-dlp", "-f", "best[height<=720][ext=mp4]/best", "-o", output_path, link]
+            cmd = ["yt-dlp", "-f", "bv*[height<=480]+ba/b[height<=480]", "-o", output_path, link]
             subprocess.run(cmd, check=True, timeout=60, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if valid_video(output_path): return output_path
         except: pass
     return None
 
 def download_dailymotion(game):
-    log("Tier 2: Scanning Dailymotion...")
+    log("Tier 3: Scanning Dailymotion...")
     try:
         q = requests.utils.quote(game["search_query"])
         api = f"https://api.dailymotion.com/videos?search={q}&fields=id,url&limit=5"
@@ -98,20 +112,19 @@ def download_dailymotion(game):
         for v in r.get("list", []):
             url = f"https://www.dailymotion.com/video/{v['id']}"
             output_path = os.path.join(WORK, "source.mp4")
-            cmd = ["yt-dlp", "-f", "best[height<=720][ext=mp4]/best", "-o", output_path, url]
+            cmd = ["yt-dlp", "-f", "bv*[height<=480]+ba/b[height<=480]", "-o", output_path, url]
             subprocess.run(cmd, check=True, timeout=60, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if valid_video(output_path): return output_path
     except: pass
     return None
 
 def download_archive(game):
-    log("Tier 3: Scanning Internet Archive...")
+    log("Tier 4: Scanning Internet Archive...")
     try:
         api_url = f"https://archive.org/advancedsearch.php?q={requests.utils.quote(game['search_query'])}&fl[]=identifier&rows=10&output=json"
         r = requests.get(api_url, timeout=20).json()
         docs = r.get("response", {}).get("docs", [])
         random.shuffle(docs)
-        
         for doc in docs:
             ident = doc.get("identifier")
             if not ident: continue
@@ -131,23 +144,22 @@ def get_source_video(game):
     output_path = os.path.join(WORK, "source.mp4")
     if os.path.exists(output_path): os.remove(output_path)
     
-    src = download_twitter()
-    if src: return src
-    
-    src = download_dailymotion(game)
-    if src: return src
-    
-    src = download_archive(game)
-    if src: return src
-    
+    for func in [download_instagram, download_twitter]:
+        src = func()
+        if src: return src
+        
+    for func in [download_dailymotion, download_archive]:
+        src = func(game)
+        if src: return src
     return None
 
 def safe_auto_edit_and_slice(src):
     log("Running Auto-Editor...")
     edited_path = os.path.join(WORK, "edited_source.mp4")
-    cmd_edit = ["auto-editor", src, "--edit", "audio:threshold=0.04", "--margin", "0.2sec", "-o", edited_path]
-    try: subprocess.run(cmd_edit, check=True, timeout=120)
-    except: edited_path = src
+    try: 
+        subprocess.run(["auto-editor", src, "--edit", "audio:threshold=0.04", "--margin", "0.2sec", "-o", edited_path], check=True, timeout=120)
+    except: 
+        edited_path = src
 
     log("Slicing & Applying Effects...")
     segments = []
@@ -164,23 +176,45 @@ def safe_auto_edit_and_slice(src):
         segments.append(seg_path)
     return segments
 
+# --- AI BRAIN (FIXED TO PREVENT DUPLICATES) ---
 def call_gemini(prompt):
     try:
         key = os.environ.get("GEMINI_API_KEY")
         if not key: return None
         client = genai.Client(api_key=key)
-        return client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text
+        # Temperature 1.0 forces the AI to be highly creative and unique
+        return client.models.generate_content(
+            model='gemini-2.5-flash', 
+            contents=prompt,
+            config={'temperature': 1.0} 
+        ).text
     except: return None
 
 def call_pollinations(prompt):
     try:
-        r = requests.post("https://text.pollinations.ai/openai", json={"model": "openai", "messages": [{"role": "user", "content": prompt}]}, timeout=30)
+        r = requests.post("https://text.pollinations.ai/openai", json={"model": "openai", "messages": [{"role": "user", "content": prompt}], "temperature": 1.0}, timeout=30)
         return r.json()['choices'][0]['message']['content']
     except: return None
 
 def generate_script(game_name, rules=""):
     log(f"Generating Script for {game_name}...")
-    prompt = f"Write a viral YouTube Shorts script for {game_name}. RULES: {rules}. Make it high energy. Return ONLY valid JSON: {{\"title\": \"<80 chars, ends with #shorts>\", \"description\": \"<2 sentences>\", \"hook\": \"<Curiosity gap>\", \"clips\": [\"<clip 1>\", \"<clip 2>\", \"<clip 3>\"]}}"
+    
+    # WE ADD A RANDOM NUMBER SO THE AI NEVER GENERATES THE SAME TITLE TWICE
+    random_seed = random.randint(1000, 9999)
+    
+    prompt = f"""
+    You are a viral YouTube Shorts strategist. Write a script for {game_name}. 
+    RULES: {rules}
+    RANDOM SEED (Use this to make the title unique): {random_seed}
+    
+    Return ONLY valid JSON: 
+    {{
+        "title": "<Max 80 chars, unique clickbait, MUST end with #shorts>", 
+        "description": "<2 sentences>", 
+        "hook": "<Curiosity gap>", 
+        "clips": ["<clip 1>", "<clip 2>", "<clip 3>"]
+    }}
+    """
     
     res = call_gemini(prompt)
     if not res: res = call_pollinations(prompt)
@@ -231,6 +265,10 @@ def upload(path, title, description, tags):
 
 def main():
     os.makedirs(WORK, exist_ok=True)
+    setup_ig_cookies()
+    
+    # 5 SECOND DELAY TO PREVENT GITHUB API OVERLAPS
+    time.sleep(5)
     
     manual_url = os.environ.get("CAMPAIGN_URL", "").strip()
     manual_game = os.environ.get("GAME_OVERRIDE", "").strip()
@@ -239,7 +277,7 @@ def main():
     if manual_url:
         log("MANUAL CAMPAIGN MODE")
         src = os.path.join(WORK, "source.mp4")
-        subprocess.run(["yt-dlp", "-f", "best[height<=720][ext=mp4]/best", "-o", src, manual_url], check=True)
+        subprocess.run(["yt-dlp", "-f", "bv*[height<=480]+ba/b[height<=480]", "-o", src, manual_url], check=True)
         game, rules = manual_game or "Gaming", manual_rules
     else:
         selected_game = random.choices(GAMES, weights=GAME_WEIGHTS, k=1)[0]
