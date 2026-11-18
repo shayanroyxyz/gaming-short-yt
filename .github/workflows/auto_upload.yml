@@ -1,23 +1,13 @@
-name: 24/7 YouTube Auto-Publisher
+name: 24/7 US Prime-Time 6x Daily Publisher
 on:
   schedule:
-    # 6 runs a day: 10AM, 1PM, 4PM, 7PM, 10PM, 1AM EST
-    - cron: '0 15,18,21,0,3,6 * * *'
-  workflow_dispatch: 
-    inputs:
-      campaign_url:
-        description: 'Campaign Video URL (Optional)'
-        required: false
-        default: ''
-      game_override:
-        description: 'Game Name (Optional)'
-        required: false
-        default: ''
-      guidelines:
-        description: 'Campaign Rules (Optional)'
-        required: false
-        default: ''
-
+    - cron: '17 3 * * *'
+    - cron: '17 7 * * *'
+    - cron: '17 12 * * *'
+    - cron: '17 16 * * *'
+    - cron: '17 19 * * *'
+    - cron: '17 22 * * *'
+  workflow_dispatch:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
@@ -27,19 +17,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: System deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core espeak-ng curl
-          pip install --no-cache-dir -r requirements.txt
-          pip install --no-cache-dir auto-editor
-      - name: Run pipeline
-        env:
-          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
-          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
+      - run: pip install --upgrade google-api-python-client google-auth-oauthlib google-genai yt-dlp[default] edge-tts requests
+      - env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          CAMPAIGN_URL:          ${{ github.event.inputs.campaign_url }}
-          GAME_OVERRIDE:         ${{ github.event.inputs.game_override }}
-          GUIDELINES:            ${{ github.event.inputs.guidelines }}
         run: python main.py
