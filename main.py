@@ -1,4 +1,4 @@
-import os, re, json, random, asyncio, datetime, subprocess, requests, edge_tts
+import os, re, json, random, asyncio, datetime, subprocess, xml.etree.ElementTree as ET, requests, edge_tts
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -27,48 +27,57 @@ def pick_game_theme():
         return random.choice(gta_pool) if random.random() < 0.85 else random.choice(other_pool)
     return random.choice(gta_pool + other_pool)
 
-def fetch_hd_clip_no_cookies(subreddits):
+def fetch_best_available_clip(game_name, subreddits):
     random.shuffle(subreddits)
-    headers = {"User-Agent": "python:us.gaming.curator:v3.1 (by /u/auto_clipper)"}
+    headers = {"User-Agent": UA}
     candidate_urls = []
 
+    # 1. Reddit Public RSS Feeds (unblocked XML endpoint)
     for sub in subreddits:
-        for sort in ["hot", "top"]:
-            try:
-                url = f"https://www.reddit.com/r/{sub}/{sort}.json?t=week&limit=40"
-                r = requests.get(url, headers=headers, timeout=15)
-                if r.status_code != 200:
-                    continue
-                for post in r.json().get("data", {}).get("children", []):
-                    d = post.get("data", {})
-                    if d.get("is_video") or "v.redd.it" in d.get("url", ""):
-                        candidate_urls.append("https://www.reddit.com" + d.get("permalink", ""))
-            except Exception as e:
-                print("Feed skip:", sub, e)
+        try:
+            r = requests.get(f"https://www.reddit.com/r/{sub}/hot/.rss?limit=35", headers=headers, timeout=15)
+            if r.status_code == 200:
+                root = ET.fromstring(r.text)
+                for entry in root.findall("{http://www.w3.org/2005/Atom}entry"):
+                    link_el = entry.find("{http://www.w3.org/2005/Atom}link")
+                    if link_el is not None and link_el.attrib.get("href"):
+                        candidate_urls.append(link_el.attrib["href"])
+        except Exception as e:
+            print("RSS skip:", sub, e)
 
-    candidate_urls = list(set(candidate_urls))
     random.shuffle(candidate_urls)
-
-    for url in candidate_urls[:18]:
-        print("Downloading HD clip (no cookies):", url)
+    for url in candidate_urls[:20]:
+        print("Trying Reddit RSS post (no quality barrier):", url)
         if os.path.exists("full_source.mp4"):
             os.remove("full_source.mp4")
         res = subprocess.run([
             "yt-dlp", "--user-agent", UA,
-            "-f", "bv*[height>=720]+ba/b[height>=720]/bv*+ba/b",
+            "-f", "bv*+ba/b",
             "--merge-output-format", "mp4",
             "-o", "full_source.mp4", url
         ])
-        if res.returncode == 0 and os.path.exists("full_source.mp4") and os.path.getsize("full_source.mp4") > 600_000:
-            dim = subprocess.check_output([
-                "ffprobe", "-v", "error", "-select_streams", "v:0",
-                "-show_entries", "stream=width,height", "-of", "csv=p=0", "full_source.mp4"
-            ]).decode().strip().split(",")
-            if len(dim) == 2 and max(int(dim[0]), int(dim[1])) >= 720:
-                print(f"Verified crisp HD clip ({dim[0]}x{dim[1]})!")
-                return
+        if res.returncode == 0 and os.path.exists("full_source.mp4") and os.path.getsize("full_source.mp4") > 300_000:
+            print("Downloaded clip successfully from Reddit RSS!")
+            return
 
-    raise RuntimeError("No >=720p clip found in this cycle; will retry automatically next run.")
+    # 2. Backup: YouTube embedded/tv client (no cookies, no quality filter)
+    q = f"ytsearch6:{game_name} gameplay moments"
+    print("Trying YouTube web_embedded/tv fallback:", q)
+    subprocess.run([
+        "yt-dlp",
+        "--extractor-args", "youtube:player-client=web_embedded,tv",
+        "--match-filter", "duration > 15 & duration < 300",
+        "--max-downloads", "1",
+        "-f", "bv*+ba/b",
+        "--merge-output-format", "mp4",
+        "-o", "full_source.mp4", q
+    ], check=False)
+
+    if os.path.exists("full_source.mp4") and os.path.getsize("full_source.mp4") > 300_000:
+        print("Downloaded clip successfully from YouTube fallback!")
+        return
+
+    raise RuntimeError("Could not fetch a video clip in this run.")
 
 def slice_best_segment():
     probe = subprocess.check_output([
@@ -138,7 +147,7 @@ def render_hd_short():
         "ffmpeg", "-y", "-i", "raw.mp4", "-i", "voice.mp3",
         "-filter_complex", vf,
         "-map", "[v]", "-map", "1:a", "-shortest",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "19",
         "-c:a", "aac", "-b:a", "192k", "final.mp4"
     ], check=True)
 
@@ -160,12 +169,12 @@ def upload_to_youtube(title, description, tags):
         media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True)
     )
     resp = req.execute()
-    print("SUCCESS! Published HD Short ID:", resp.get("id"))
+    print("SUCCESS! Published Short ID:", resp.get("id"))
 
 if __name__ == "__main__":
     validate_env()
     game_name, subs, angle = pick_game_theme()
-    fetch_hd_clip_no_cookies(subs)
+    fetch_best_available_clip(game_name, subs)
     slice_best_segment()
     title, script, tags = generate_us_viral_script(game_name, angle)
     asyncio.run(create_voice_and_synced_srt(script))
