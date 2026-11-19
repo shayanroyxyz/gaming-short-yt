@@ -1,119 +1,194 @@
-import os, re, json, random, asyncio, datetime, subprocess, xml.etree.ElementTree as ET, requests, edge_tts
+import os, re, json, time, random, asyncio, textwrap, subprocess, urllib.parse, xml.etree.ElementTree as ET, requests, edge_tts
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google import genai
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+MALE_US_VOICES = [
+    "en-US-AndrewMultilingualNeural",
+    "en-US-BrianMultilingualNeural",
+    "en-US-ChristopherNeural",
+    "en-US-GuyNeural"
+]
 
-def validate_env():
-    required = ["GEMINI_API_KEY", "YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"]
-    missing = [k for k in required if not os.environ.get(k)]
-    if missing:
-        raise RuntimeError(f"Missing GitHub Secrets: {missing}")
+CAPTION_STYLES = [
+    "FontName=DejaVu Sans,FontSize=25,Bold=1,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=5",
+    "FontName=DejaVu Sans,FontSize=24,Bold=1,PrimaryColour=&H00FFFFFF,BackColour=&H80000000,BorderStyle=3,Outline=2,Shadow=0,Alignment=5",
+    "FontName=DejaVu Sans,FontSize=25,Bold=1,PrimaryColour=&H0000FF66,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=5",
+    "FontName=DejaVu Sans,FontSize=25,Bold=1,PrimaryColour=&H00FFFF00,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=5"
+]
 
-def pick_game_theme():
-    gta_pool = [
-        ("GTA 6", ["GTA6", "GrandTheftAutoV", "GTA"], "insane hidden details and realism in GTA 6"),
-        ("GTA 5", ["GrandTheftAutoV", "gtaonline", "GTA"], "secret physics details and hidden stories in GTA 5"),
-        ("GTA San Andreas", ["GTA", "sanandreas", "gaming"], "legendary mysteries and hidden facts in GTA San Andreas"),
-        ("GTA 4", ["GTA", "GTAIV", "gaming"], "why GTA 4 physics and dark story details were ahead of their time")
-    ]
-    other_pool = [
-        ("Minecraft", ["Minecraft", "gaming"], "insane secret mechanics and rare moments in Minecraft"),
-        ("Roblox", ["roblox", "gaming"], "crazy viral moments and hidden secrets in Roblox")
-    ]
-    if datetime.date.today() <= datetime.date(2026, 12, 18):
-        return random.choice(gta_pool) if random.random() < 0.85 else random.choice(other_pool)
-    return random.choice(gta_pool + other_pool)
+def send_telegram_with_buttons(text, video_path=None):
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        return
+    kb = json.dumps({
+        "inline_keyboard": [
+            [{"text": "🚀 Make Another Now", "callback_data": "MAKE_NOW"}, {"text": "📈 Channel Stats", "callback_data": "STATS"}],
+            [{"text": "🗑️ Delete Last Short", "callback_data": "DELETE_LAST"}]
+        ]
+    })
+    try:
+        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": text, "reply_markup": kb}, timeout=15)
+        if video_path and os.path.exists(video_path):
+            with open(video_path, "rb") as vf:
+                requests.post(
+                    f"https://api.telegram.org/bot{token}/sendVideo",
+                    data={"chat_id": chat_id, "caption": "Tap Share -> Instagram Reels to cross-post!"},
+                    files={"video": vf},
+                    timeout=60
+                )
+    except Exception as e:
+        print("Telegram notify skip:", e)
 
-def fetch_best_available_clip(game_name, subreddits):
-    random.shuffle(subreddits)
-    headers = {"User-Agent": UA}
-    candidate_urls = []
+def fetch_live_hype_context():
+    topics = []
+    for q in ["GTA+6", "GTA+5", "Minecraft", "Roblox", "Valorant"]:
+        try:
+            r = requests.get(f"https://news.google.com/rss/search?q={q}+gaming+when:2d&hl=en-US&gl=US&ceid=US:en", timeout=8)
+            root = ET.fromstring(r.text)
+            for item in root.findall(".//item")[:2]:
+                topics.append(item.find("title").text.split(" - ")[0])
+        except Exception:
+            pass
+    return "; ".join(topics[:6]) if topics else "GTA 6 realistic open world details and viral gaming physics"
 
-    # 1. Force Reddit RSS to return ONLY v.redd.it video posts
-    for sub in subreddits:
-        for query in ["site%3Av.redd.it", "gameplay"]:
+def ask_ai_brain(prompt):
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    if groq_key:
+        try:
+            r = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.9},
+                timeout=20
+            )
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            print("Groq fallback:", e)
+
+    or_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if or_key:
+        for mid in ["qwen/qwen-2.5-72b-instruct:free", "deepseek/deepseek-chat-v3-0324:free"]:
             try:
-                rss_url = f"https://www.reddit.com/r/{sub}/search.rss?q={query}&restrict_sr=1&sort=top&t=month&limit=25"
-                r = requests.get(rss_url, headers=headers, timeout=15)
+                r = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {or_key}", "Content-Type": "application/json"},
+                    json={"model": mid, "messages": [{"role": "user", "content": prompt}]},
+                    timeout=25
+                )
                 if r.status_code == 200:
-                    root = ET.fromstring(r.text)
-                    for entry in root.findall("{http://www.w3.org/2005/Atom}entry"):
-                        link_el = entry.find("{http://www.w3.org/2005/Atom}link")
-                        if link_el is not None and link_el.attrib.get("href"):
-                            candidate_urls.append(link_el.attrib["href"])
+                    return r.json()["choices"][0]["message"]["content"]
             except Exception as e:
-                print("RSS skip:", sub, e)
+                print("OpenRouter fallback:", mid, e)
 
-    candidate_urls = list(set(candidate_urls))
-    random.shuffle(candidate_urls)
-    print(f"Found {len(candidate_urls)} Reddit video candidates")
+    gem_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if gem_key:
+        client = genai.Client(api_key=gem_key)
+        return client.models.generate_content(model="gemini-2.5-flash", contents=prompt).text
+    raise RuntimeError("No AI API key succeeded.")
 
-    for url in candidate_urls[:25]:
-        print("Downloading Reddit video:", url)
-        if os.path.exists("full_source.mp4"):
-            os.remove("full_source.mp4")
-        res = subprocess.run([
-            "yt-dlp", "--user-agent", UA,
-            "-f", "bv*+ba/b",
-            "--merge-output-format", "mp4",
-            "-o", "full_source.mp4", url
-        ])
-        if res.returncode == 0 and os.path.exists("full_source.mp4") and os.path.getsize("full_source.mp4") > 250_000:
-            print("Downloaded clip successfully from Reddit video search!")
-            return
+def stream_unique_action_clips(hist, focus):
+    conf = os.environ.get("RCLONE_CONF", "").strip()
+    os.makedirs(os.path.expanduser("~/.config/rclone"), exist_ok=True)
+    open(os.path.expanduser("~/.config/rclone/rclone.conf"), "w").write(conf)
 
-    # 2. Unblocked Wikimedia Commons Video API fallback (never blocks GitHub IPs)
-    print("Using unblocked Wikimedia Commons video fallback...")
-    wm = requests.get(
-        "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=filetype:video+game+OR+car+chase+OR+city+night&gsrnamespace=6&gsrlimit=15&prop=imageinfo&iiprop=url&format=json",
-        headers=headers, timeout=15
-    ).json()
-    pages = list(wm.get("query", {}).get("pages", {}).values())
-    random.shuffle(pages)
-    for p in pages:
-        vurl = p.get("imageinfo", [{}])[0].get("url", "")
-        if vurl.endswith((".mp4", ".webm")):
-            subprocess.run(["yt-dlp", "--user-agent", UA, "-o", "full_source.mp4", vurl])
-            if os.path.exists("full_source.mp4") and os.path.getsize("full_source.mp4") > 250_000:
-                print("Downloaded fallback video successfully!")
-                return
+    pool = []
+    for remote in ["mega", "pcloud"]:
+        try:
+            out = subprocess.check_output(["rclone", "lsjson", f"{remote}:GTA_Clips"], stderr=subprocess.DEVNULL).decode()
+            for f in json.loads(out):
+                if not f.get("IsDir") and f["Name"].lower().endswith((".mp4", ".mkv", ".webm")):
+                    pool.append((remote, f["Name"]))
+        except Exception:
+            pass
 
-    raise RuntimeError("Could not fetch a video clip in this run.")
+    if not pool:
+        raise RuntimeError("No videos found in mega:GTA_Clips or pcloud:GTA_Clips! Send a YouTube link to your Telegram bot first.")
 
-def slice_best_segment():
-    probe = subprocess.check_output([
-        "ffprobe", "-v", "error", "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1", "full_source.mp4"
-    ]).decode().strip()
-    dur = float(probe)
-    clip_len = min(22.0, max(12.0, dur - 1.0))
-    max_start = max(0, int(dur - clip_len))
-    start_sec = random.randint(0, max_start) if max_start > 0 else 0
-    subprocess.run([
-        "ffmpeg", "-y", "-ss", str(start_sec), "-t", str(clip_len),
-        "-i", "full_source.mp4", "-c:v", "libx264", "-preset", "fast", "-crf", "19", "-an", "raw.mp4"
-    ], check=True)
+    focused = [x for x in pool if focus != "auto" and focus in x[1].lower()]
+    if focused:
+        remote, fname = random.choice(focused)
+    else:
+        gta_files = [x for x in pool if "gta" in x[1].lower()]
+        remote, fname = random.choice(gta_files) if (gta_files and random.random() < 0.75) else random.choice(pool)
 
-def generate_us_viral_script(game_name, angle):
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    srv = subprocess.Popen(["rclone", "serve", "http", f"{remote}:GTA_Clips", "--addr", "127.0.0.1:8080"])
+    try:
+        time.sleep(3)
+        url = f"http://127.0.0.1:8080/{urllib.parse.quote(fname)}"
+        probe = subprocess.check_output([
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", url
+        ]).decode().strip()
+        dur = float(probe)
+
+        safe_start = int(dur * 0.06)
+        safe_end = max(safe_start + 25, int(dur * 0.92))
+        mid = (safe_start + safe_end) // 2
+
+        for _ in range(20):
+            t1 = random.randint(safe_start, max(safe_start, mid - 10))
+            t2 = random.randint(mid, max(mid, safe_end - 10))
+            win_key = f"{fname}:{t1//15}:{t2//15}"
+            if win_key not in hist["used_windows"]:
+                hist["used_windows"].append(win_key)
+                break
+
+        for idx, ts in enumerate([t1, t2]):
+            subprocess.run([
+                "ffmpeg", "-y", "-ss", str(ts), "-t", "7.2",
+                "-i", url, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-an", f"cut_{idx}.mp4"
+            ], check=True)
+
+        open("concat.txt", "w").write("file 'cut_0.mp4'\nfile 'cut_1.mp4'\n")
+        subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "raw.mp4"], check=True)
+    finally:
+        srv.terminate()
+    return fname
+
+def generate_viral_package(fname, hist, focus):
+    clean_name = os.path.splitext(fname)[0].replace("_", " ").replace("-", " ")
+    hype_now = fetch_live_hype_context()
+    angles = [
+        "Mythbusting (test a popular rumor or physics rule with a bold question at 0:00)",
+        "Physics & Realism Comparison (why older/newer engines humiliate competitors)",
+        "Quick Tip & Hidden Trick (secret mechanic or hidden detail 99% of players miss)",
+        "Did You Know? Lore & Easter Egg (dark backstory or secret developer detail)",
+        "Mini Challenge / Clutch Highlight (high-stakes test or impossible clutch)",
+        "Epic Fail / Ragdoll Physics Breakdown (why this engine moment went viral)"
+    ]
+    recent_avoid = ", ".join(hist["used_topics"][-12:])
     prompt = (
-        f"You are a viral US gaming YouTube Shorts creator. Game: {game_name}. Topic: {angle}.\n"
-        "Write a high-retention script for an American audience.\n"
-        "Output ONLY valid JSON with keys: title, script, tags\n"
-        "- title: punchy curiosity title under 75 chars ending with #shorts #gta (or #gaming)\n"
-        "- script: 35 to 45 words total, 3 short punchy sentences with natural pauses (...) revealing a mind-blowing fact, hidden story, or secret detail.\n"
-        "- tags: list of 5 relevant tags without #"
+        f"You are a viral US gaming YouTube Shorts strategist. Source game file: {clean_name}. Focus mode: {focus}.\n"
+        f"Live US Gaming Hype Today: {hype_now}.\n"
+        f"Format: {random.choice(angles)}.\n"
+        f"Avoid repeating these recent topics: [{recent_avoid}].\n"
+        "Target metrics: 75%+ stayed-to-watch ratio and 100%+ loop retention on a 14-second Short for a high-RPM US audience.\n"
+        "Output ONLY valid JSON with keys: title, top_hook, script, first_comment, tags\n"
+        "- title: curiosity-gap title under 70 chars ending with #shorts #gaming\n"
+        "- top_hook: 4 to 6 words in ALL CAPS for a persistent top banner at 0:00 posing immediate stakes/curiosity (no emojis)\n"
+        "- script: EXACTLY 28 to 34 words total (fits 13.5s brisk voiceover). Start instantly with action (no intro). End mid-thought so the final word loops seamlessly back into the first word!\n"
+        "- first_comment: 1 short engaging question to pin in comments to spark debate\n"
+        "- tags: list of 8 high-search US gaming tags without #"
     )
-    res = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-    raw = re.sub(r"^```json|```$", "", res.text.strip(), flags=re.MULTILINE).strip()
-    data = json.loads(raw)
-    return data["title"][:85], data["script"], data.get("tags", [game_name.replace(" ", ""), "Shorts", "Gaming"])
+    raw = ask_ai_brain(prompt)
+    cleaned = re.sub(r"^```json|```$", "", raw.strip(), flags=re.MULTILINE).strip()
+    data = json.loads(cleaned)
+    hist["used_topics"].append(data["top_hook"])
+    return (
+        data["title"][:85],
+        data["top_hook"].replace("'", "").replace('"', ""),
+        data["script"],
+        data.get("first_comment", "Which game should we test next? 👇"),
+        data.get("tags", ["GTA6", "GTA5", "Shorts", "Gaming"])
+    )
 
-async def create_voice_and_synced_srt(script):
-    communicate = edge_tts.Communicate(script, "en-US-AndrewMultilingualNeural", rate="+7%", pitch="-2Hz")
+async def build_voice_and_captions(script, top_hook):
+    chosen_voice = random.choice(MALE_US_VOICES)
+    communicate = edge_tts.Communicate(script, chosen_voice, rate="+12%", pitch="-1Hz")
     await communicate.save("voice.mp3")
 
     probe = subprocess.check_output([
@@ -123,39 +198,39 @@ async def create_voice_and_synced_srt(script):
     total_dur = float(probe)
 
     words = script.split()
-    chunks = [" ".join(words[i:i+3]).upper() for i in range(0, len(words), 3)]
+    chunks = [" ".join(words[i:i+2]).upper() for i in range(0, len(words), 2)]
     step = total_dur / max(1, len(chunks))
 
     def fmt_ts(sec):
-        h = int(sec // 3600)
-        m = int((sec % 3600) // 60)
-        s = int(sec % 60)
+        h, m, s = int(sec // 3600), int((sec % 3600) // 60), int(sec % 60)
         ms = int((sec - int(sec)) * 1000)
         return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
-    srt_lines = []
-    for idx, chunk in enumerate(chunks):
-        t0 = idx * step
-        t1 = (idx + 1) * step
-        srt_lines.append(f"{idx+1}\n{fmt_ts(t0)} --> {fmt_ts(t1)}\n{chunk}\n")
-    open("subs.srt", "w").write("\n".join(srt_lines))
+    srt = [f"{i+1}\n{fmt_ts(i*step)} --> {fmt_ts((i+1)*step)}\n{c}\n" for i, c in enumerate(chunks)]
+    open("subs.srt", "w").write("\n".join(srt))
+    open("hook.txt", "w").write("\n".join(textwrap.wrap(top_hook.upper(), width=22)))
 
-def render_hd_short():
+def render_with_dynamic_fx():
+    cap_style = random.choice(CAPTION_STYLES)
     vf = (
-        "[0:v]setpts=0.98*PTS,scale=1080:1920:force_original_aspect_ratio=increase,"
-        "crop=1080:1920,unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.08:saturation=1.15,"
-        "subtitles=subs.srt:force_style='FontName=DejaVu Sans,FontSize=22,Bold=1,"
-        "PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=95'[v]"
+        "[0:v]setpts=0.95*PTS,scale=1240:2200:flags=lanczos:force_original_aspect_ratio=increase,"
+        "crop=1080:1920:x='(iw-ow)/2+15*sin(t*2)':y='(ih-oh)/2',"
+        "unsharp=5:5:0.9:5:5:0.0,eq=contrast=1.10:saturation=1.18,"
+        "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=hook.txt:"
+        "fontcolor=white:fontsize=46:box=1:boxcolor=black@0.80:boxborderw=18:x=(w-text_w)/2:y=190,"
+        f"subtitles=subs.srt:force_style='{cap_style}'[v]"
     )
     subprocess.run([
         "ffmpeg", "-y", "-i", "raw.mp4", "-i", "voice.mp3",
-        "-filter_complex", vf,
-        "-map", "[v]", "-map", "1:a", "-shortest",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "19",
+        "-f", "lavfi", "-i", "sine=frequency=55:sample_rate=44100",
+        "-filter_complex",
+        vf + ";[2:a]volume=0.04[bg];[1:a][bg]amix=inputs=2:duration=first[a]",
+        "-map", "[v]", "-map", "[a]", "-shortest",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
         "-c:a", "aac", "-b:a", "192k", "final.mp4"
     ], check=True)
 
-def upload_to_youtube(title, description, tags):
+def publish_everywhere(title, script, first_comment, tags, cfg):
     creds = Credentials(
         token=None,
         refresh_token=os.environ["YOUTUBE_REFRESH_TOKEN"],
@@ -164,23 +239,44 @@ def upload_to_youtube(title, description, tags):
         token_uri="https://oauth2.googleapis.com/token"
     )
     youtube = build("youtube", "v3", credentials=creds)
+    desc = f"{script}\n\nSubscribe for daily gaming myths, physics tests, and hidden secrets!\n\n#shorts #gta6 #gta5 #minecraft #gaming #viral"
     req = youtube.videos().insert(
         part="snippet,status",
         body={
-            "snippet": {"title": title, "description": description, "tags": tags, "categoryId": "20"},
+            "snippet": {"title": title, "description": desc, "tags": tags, "categoryId": "20"},
             "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
         },
         media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True)
     )
     resp = req.execute()
-    print("SUCCESS! Published Short ID:", resp.get("id"))
+    vid_id = resp.get("id")
+    cfg["last_video_id"] = vid_id
+    print("SUCCESS! Published Short ID:", vid_id)
+
+    # Auto-post engagement comment in first 60s
+    try:
+        youtube.commentThreads().insert(
+            part="snippet",
+            body={"snippet": {"videoId": vid_id, "topLevelComment": {"snippet": {"textOriginal": first_comment}}}}
+        ).execute()
+    except Exception as e:
+        print("Comment post skip (needs youtube.force-ssl scope):", e)
+
+    subprocess.run(["rclone", "copyto", "final.mp4", f"pcloud:Ready_Reels/{vid_id}.mp4"], check=False)
+    send_telegram_with_buttons(f"✅ Published New Short!\nTitle: {title}\nURL: https://youtube.com/shorts/{vid_id}", "final.mp4")
 
 if __name__ == "__main__":
-    validate_env()
-    game_name, subs, angle = pick_game_theme()
-    fetch_best_available_clip(game_name, subs)
-    slice_best_segment()
-    title, script, tags = generate_us_viral_script(game_name, angle)
-    asyncio.run(create_voice_and_synced_srt(script))
-    render_hd_short()
-    upload_to_youtube(title, f"{script}\n\n#shorts #gta #gaming", tags)
+    try:
+        hist = load_history() if os.path.exists("history.json") else {"used_windows": [], "used_topics": []}
+        cfg = json.load(open("config.json")) if os.path.exists("config.json") else {"focus": "auto", "last_video_id": ""}
+        focus = cfg.get("focus", "auto")
+        fname = stream_unique_action_clips(hist, focus)
+        title, top_hook, script, first_comment, tags = generate_viral_package(fname, hist, focus)
+        asyncio.run(build_voice_and_captions(script, top_hook))
+        render_with_dynamic_fx()
+        publish_everywhere(title, script, first_comment, tags, cfg)
+        json.dump({"used_windows": hist["used_windows"][-400:], "used_topics": hist["used_topics"][-100:]}, open("history.json", "w"), indent=2)
+        json.dump(cfg, open("config.json", "w"), indent=2)
+    except Exception as e:
+        send_telegram_with_buttons(f"⚠️ Pipeline Alert: {e}")
+        raise

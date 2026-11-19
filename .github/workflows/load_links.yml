@@ -1,0 +1,21 @@
+name: 0-Byte Cloud Video Loader
+on:
+  push:
+    paths:
+      - 'links.txt'
+  workflow_dispatch:
+jobs:
+  load:
+    if: github.repository == 'shayanroyxyz/gta-shorts-agent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg rclone
+      - run: pip install -q yt-dlp[default] requests
+      - env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python loader.py

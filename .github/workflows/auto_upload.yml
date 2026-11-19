@@ -1,4 +1,4 @@
-name: 24/7 US Prime-Time 6x Daily Publisher
+name: 24/7 US Viral Gaming Shorts (6x Daily)
 on:
   schedule:
     - cron: '17 3 * * *'
@@ -10,18 +10,30 @@ on:
   workflow_dispatch:
 jobs:
   run-bot:
+    if: github.repository == 'shayanroyxyz/gta-shorts-agent'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
-      - run: pip install --upgrade google-api-python-client google-auth-oauthlib google-genai yt-dlp[default] edge-tts requests
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core rclone
+      - run: pip install -q google-api-python-client google-auth-oauthlib google-genai edge-tts requests
       - env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py
+      - run: |
+          git config user.name "AutoBot"
+          git config user.email "bot@users.noreply.github.com"
+          git add history.json config.json
+          git commit -m "Log clip history & last video" || true
+          git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git || true

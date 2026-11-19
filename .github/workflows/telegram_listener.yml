@@ -1,0 +1,29 @@
+name: Telegram Owner Command Center
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+jobs:
+  listen:
+    if: github.repository == 'shayanroyxyz/gta-shorts-agent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y rclone
+      - run: pip install -q requests google-api-python-client google-auth-oauthlib
+      - env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: python telegram_bot.py
+      - run: |
+          git config user.name "OwnerBot"
+          git config user.email "bot@users.noreply.github.com"
+          git add links.txt config.json tg_offset.txt
+          git commit -m "Telegram remote command update" || true
+          git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git || true
