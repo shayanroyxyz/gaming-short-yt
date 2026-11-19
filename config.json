@@ -1,4 +1,5 @@
 {
   "focus": "auto",
-  "last_video_id": ""
+  "last_video_id": "",
+  "pending_url": ""
 }

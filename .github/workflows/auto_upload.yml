@@ -34,6 +34,7 @@ jobs:
       - run: |
           git config user.name "AutoBot"
           git config user.email "bot@users.noreply.github.com"
+          touch history.json config.json
           git add history.json config.json
           git commit -m "Log clip history & last video" || true
           git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git || true

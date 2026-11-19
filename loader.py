@@ -6,6 +6,15 @@ def tg(t):
     if TOKEN and CHAT_ID:
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": t}, timeout=15)
 
+if not os.path.exists("links.txt"):
+    open("links.txt", "w").write("")
+    exit(0)
+
+lines = [l.strip() for l in open("links.txt").readlines() if l.strip() and not l.startswith("#")]
+if not lines:
+    print("links.txt is empty; nothing to download.")
+    exit(0)
+
 conf = os.environ.get("RCLONE_CONF", "").strip()
 os.makedirs(os.path.expanduser("~/.config/rclone"), exist_ok=True)
 open(os.path.expanduser("~/.config/rclone/rclone.conf"), "w").write(conf)
@@ -14,11 +23,8 @@ cookies = os.environ.get("YOUTUBE_COOKIES", "").strip()
 if cookies:
     open("cookies.txt", "w").write(cookies)
 
-lines = [l.strip() for l in open("links.txt").readlines() if l.strip() and not l.startswith("#")]
 for idx, line in enumerate(lines):
     parts = [p.strip() for p in line.split("|")]
-    if len(parts) == 1 and " " in line:
-        parts = line.split(" ", 1)
     url = parts[0].strip()
     fname = parts[1].strip() if len(parts) > 1 else f"[GTA]_Gameplay_{idx+1}.mp4"
     if not fname.endswith(".mp4"):
@@ -35,4 +41,6 @@ for idx, line in enumerate(lines):
             dest = "pCloud"
         tg(f"✅ Loaded 720p gameplay into {dest}: {fname}")
     else:
-        tg(f"⚠️ Failed to download link (add YOUTUBE_COOKIES if age/bot restricted): {url}")
+        tg(f"⚠️ Failed to download link: {url}")
+
+open("links.txt", "w").write("")
