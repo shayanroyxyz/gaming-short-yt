@@ -1,5 +1,4 @@
-import os, re, time, json, base64, threading, requests, xml.etree.ElementTree as ET
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import os, re, time, json, base64, threading, requests
 
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"].strip()
 CHAT_ID = str(os.environ["TELEGRAM_CHAT_ID"]).strip()
@@ -16,7 +15,7 @@ MAIN_KB = {
         [{"text": "❓ Help"}, {"text": "❌ Cancel"}]
     ],
     "resize_keyboard": True,
-    "is_persistent": True
+    "one_time_keyboard": False
 }
 
 TAG_KB = {
@@ -26,8 +25,7 @@ TAG_KB = {
         [{"text": "🧱 [Roblox]"}, {"text": "🔫 [Valorant]"}],
         [{"text": "❌ Cancel"}]
     ],
-    "resize_keyboard": True,
-    "is_persistent": True
+    "resize_keyboard": True
 }
 
 def send(cid, text, kb=MAIN_KB):
@@ -53,14 +51,16 @@ def queue_link(cid, url, raw_name):
     trigger_wf("load_links.yml")
     send(cid, f"✅ Queued & Loader Started!\nFile: {safe}\nDownloading 720p straight to MEGA/pCloud now!", MAIN_KB)
 
-def get_hype():
-    out = []
-    for q in ["GTA+6", "GTA+5", "Minecraft", "Roblox", "Valorant"]:
+def get_viral_gaming_hype():
+    topics = []
+    for q in ["GTA 6 secrets physics", "GTA 5 insane mods myths", "Minecraft 1000 IQ tricks", "Roblox viral obby secrets", "Valorant radiant clutches"]:
         try:
-            r = requests.get(f"https://news.google.com/rss/search?q={q}+gaming+when:2d&hl=en-US&gl=US&ceid=US:en", timeout=8)
-            for item in ET.fromstring(r.text).findall(".//item")[:2]: out.append(item.find("title").text.split(" - ")[0])
-        except Exception: pass
-    return "\n• ".join(out[:8]) if out else "GTA 6 Free Roam, GTA 4 Physics, Minecraft Secrets"
+            r = requests.get(f"https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q={requests.utils.quote(q)}", timeout=6).json()
+            for s in r[1][:2]:
+                topics.append(s.title())
+        except Exception:
+            pass
+    return "\n• ".join(topics[:8]) if topics else "GTA 6 Hidden Map Details\n• GTA 4 vs GTA 6 Ragdoll Physics\n• Minecraft Secret Redstone Traps\n• GTA 5 Realistic Police Chase Mods"
 
 port = int(os.environ.get("PORT", 10000))
 threading.Thread(target=lambda: HTTPServer(("0.0.0.0", port), type("H", (BaseHTTPRequestHandler,), {"do_GET": lambda s: (s.send_response(200), s.end_headers(), s.wfile.write(b"OK"))})).serve_forever(), daemon=True).start()
@@ -99,7 +99,7 @@ while True:
                 cfg["focus"] = val
                 gh_put("config.json", json.dumps(cfg, indent=2), sha, f"Focus {val}")
                 send(cid, f"🎯 Focus switched to: {val.upper()}", MAIN_KB)
-            elif text in ["🔥 Live Hype", "/hype"]: send(cid, "🔥 Live US Gaming Hype:\n• " + get_hype(), MAIN_KB)
+            elif text in ["🔥 Live Hype", "/hype"]: send(cid, "🔥 Live Viral Gaming Search Trends:\n• " + get_viral_gaming_hype(), MAIN_KB)
             elif text in ["📊 Cloud Status", "/status"]:
                 h, _ = gh_get("history.json"); c, _ = gh_get("config.json")
                 send(cid, f"📊 Pipeline Status:\n• Unique Shorts Made: {len(json.loads(h).get('used_windows', [])) if h else 0}\n• Focus: {(json.loads(c).get('focus', 'auto') if c else 'auto').upper()}\n• Schedule: 6x Daily (US Prime Time)", MAIN_KB)
@@ -113,7 +113,7 @@ while True:
                 if vid:
                     cfg["last_video_id"] = ""
                     gh_put("config.json", json.dumps(cfg, indent=2), sha, "Clear last_video_id")
-                    send(cid, f"🗑️ Cleared Short ID {vid} from queue (delete video in YT Studio if already public).", MAIN_KB)
+                    send(cid, f"🗑️ Cleared Short ID {vid} from queue.", MAIN_KB)
                 else:
                     send(cid, "No recent Short ID stored.", MAIN_KB)
             else: send(cid, "🎮 24/7 Instant Owner Control Panel Active:", MAIN_KB)
