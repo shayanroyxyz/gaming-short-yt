@@ -75,7 +75,6 @@ def queue_video_link(target_chat, url, raw_name):
         safe_name += ".mp4"
     with open("links.txt", "a") as f:
         f.write(f"{url} | {safe_name}\n")
-    # Commit immediately and dispatch load_links.yml directly so it never waits
     subprocess.run(["git", "config", "user.name", "OwnerBot"], check=False)
     subprocess.run(["git", "config", "user.email", "bot@users.noreply.github.com"], check=False)
     subprocess.run(["git", "add", "links.txt"], check=False)
@@ -110,85 +109,89 @@ while time.time() < deadline:
     for u in updates:
         offset = u["update_id"] + 1
         dirty = True
-        msg = u.get("message") or u.get("channel_post") or {}
-        chat_id = str((msg.get("chat") or {}).get("id", ""))
-        user_id = str((msg.get("from") or {}).get("id", ""))
+        try:
+            msg = u.get("message") or u.get("channel_post") or {}
+            chat_id = str((msg.get("chat") or {}).get("id", ""))
+            user_id = str((msg.get("from") or {}).get("id", ""))
 
-        if chat_id not in allowed_chats and user_id != CHAT_ID:
-            continue
+            if chat_id not in allowed_chats and user_id != CHAT_ID:
+                continue
 
-        text = (msg.get("text") or "").strip()
-        if not text:
-            continue
+            text = (msg.get("text") or "").strip()
+            if not text:
+                continue
 
-        if text == "❌ Cancel":
-            cfg["pending_url"] = ""
-            send_msg(chat_id, "❌ Cancelled. Ready for your next command!", MAIN_KEYBOARD)
-        elif "youtu.be/" in text or "youtube.com/" in text:
-            parts = text.split(None, 1)
-            url = parts[0]
-            if len(parts) > 1 and len(parts[1].strip()) > 2:
-                queue_video_link(chat_id, url, parts[1])
+            if text == "❌ Cancel":
                 cfg["pending_url"] = ""
-            else:
-                cfg["pending_url"] = url
-                send_msg(chat_id, "🎬 Link received! Type a custom file name (e.g. GTA6_Police_Chase) OR tap a game tag button below:", GAME_TAG_KEYBOARD)
-        elif cfg.get("pending_url"):
-            tag_map = {"🎮 [GTA6]": "GTA6", "🚗 [GTA5]": "GTA5", "🗽 [GTA4]": "GTA4", "⛏️ [Minecraft]": "Minecraft", "🧱 [Roblox]": "Roblox", "🔫 [Valorant]": "Valorant"}
-            if text in tag_map:
-                auto_name = f"[{tag_map[text]}]_Gameplay_{int(time.time()) % 10000}.mp4"
-                queue_video_link(chat_id, cfg["pending_url"], auto_name)
-            else:
-                queue_video_link(chat_id, cfg["pending_url"], text)
-            cfg["pending_url"] = ""
-        elif text == "➕ Add Video Link":
-            send_msg(chat_id, "📎 Paste any YouTube gameplay link right now (720p/1080p) and I will ask you what to name it!", MAIN_KEYBOARD)
-        elif text in ["🚀 Make Short Now", "/make"]:
-            trigger_workflow("auto_upload.yml")
-            send_msg(chat_id, "🚀 Triggered a brand-new Short right now! It will publish to YouTube, Instagram Reels & Telegram in ~60 seconds.", MAIN_KEYBOARD)
-        elif text in ["🗑️ Delete Last", "/delete_last"]:
-            vid = cfg.get("last_video_id", "")
-            if vid:
-                try:
+                send_msg(chat_id, "❌ Cancelled. Ready for your next command!", MAIN_KEYBOARD)
+            elif "youtu.be/" in text or "youtube.com/" in text:
+                parts = text.split(None, 1)
+                url = parts[0]
+                if len(parts) > 1 and len(parts[1].strip()) > 2:
+                    queue_video_link(chat_id, url, parts[1])
+                    cfg["pending_url"] = ""
+                else:
+                    cfg["pending_url"] = url
+                    send_msg(chat_id, "🎬 Link received! Type a custom file name (e.g. GTA6_Police_Chase) OR tap a game tag button below:", GAME_TAG_KEYBOARD)
+            elif cfg.get("pending_url"):
+                tag_map = {"🎮 [GTA6]": "GTA6", "🚗 [GTA5]": "GTA5", "🗽 [GTA4]": "GTA4", "⛏️ [Minecraft]": "Minecraft", "🧱 [Roblox]": "Roblox", "🔫 [Valorant]": "Valorant"}
+                if text in tag_map:
+                    auto_name = f"[{tag_map[text]}]_Gameplay_{int(time.time()) % 10000}.mp4"
+                    queue_video_link(chat_id, cfg["pending_url"], auto_name)
+                else:
+                    queue_video_link(chat_id, cfg["pending_url"], text)
+                cfg["pending_url"] = ""
+            elif text == "➕ Add Video Link":
+                send_msg(chat_id, "📎 Paste any YouTube gameplay link right now (720p/1080p) and I will ask you what to name it!", MAIN_KEYBOARD)
+            elif text in ["🚀 Make Short Now", "/make"]:
+                trigger_workflow("auto_upload.yml")
+                send_msg(chat_id, "🚀 Triggered a brand-new Short right now! It will publish to YouTube, Instagram Reels & Telegram in ~60 seconds.", MAIN_KEYBOARD)
+            elif text in ["🗑️ Delete Last", "/delete_last"]:
+                vid = cfg.get("last_video_id", "")
+                if vid:
                     get_yt_service().videos().delete(id=vid).execute()
                     send_msg(chat_id, f"🗑️ Deleted Short {vid} from YouTube.", MAIN_KEYBOARD)
                     cfg["last_video_id"] = ""
-                except Exception as e:
-                    send_msg(chat_id, f"Delete error: {e}", MAIN_KEYBOARD)
-            else:
-                send_msg(chat_id, "No recent Short ID found to delete.", MAIN_KEYBOARD)
-        elif text in ["🎯 Focus: GTA 6", "🎯 Focus: Auto"] or text.startswith("/focus"):
-            val = "gta6" if "GTA 6" in text else ("auto" if "Auto" in text else text.replace("/focus", "").strip().lower() or "auto")
-            cfg["focus"] = val
-            send_msg(chat_id, f"🎯 Focus mode switched to: {val.upper()}", MAIN_KEYBOARD)
-        elif text in ["🔥 Live Hype", "/hype"]:
-            send_msg(chat_id, "🔥 Live US Gaming Hype Radar:\n• " + get_live_hype(), MAIN_KEYBOARD)
-        elif text in ["📊 Cloud Status", "/status"]:
-            conf = os.environ.get("RCLONE_CONF", "").strip()
-            os.makedirs(os.path.expanduser("~/.config/rclone"), exist_ok=True)
-            open(os.path.expanduser("~/.config/rclone/rclone.conf"), "w").write(conf)
-            try:
-                m_cnt = len(json.loads(subprocess.check_output(["rclone", "lsjson", "mega:GTA_Clips"]).decode()))
-            except Exception:
-                m_cnt = 0
-            try:
-                p_cnt = len(json.loads(subprocess.check_output(["rclone", "lsjson", "pcloud:GTA_Clips"]).decode()))
-            except Exception:
-                p_cnt = 0
-            hist_cnt = len(json.load(open("history.json")).get("used_windows", [])) if os.path.exists("history.json") else 0
-            send_msg(chat_id, f"📊 Cloud & Pipeline Status:\n• MEGA videos: {m_cnt}\n• pCloud videos: {p_cnt}\n• Unique cuts used: {hist_cnt}\n• Focus: {cfg.get('focus', 'auto').upper()}", MAIN_KEYBOARD)
-        elif text in ["📈 YT Stats", "/stats"]:
-            yt = get_yt_service()
-            ch = yt.channels().list(part="statistics", mine=True).execute()["items"][0]["statistics"]
-            send_msg(chat_id, f"📈 Live YouTube Studio Stats:\n• Subscribers: {ch.get('subscriberCount')}\n• Total Views: {ch.get('viewCount')}\n• Videos: {ch.get('videoCount')}", MAIN_KEYBOARD)
-        elif text in ["❓ Help", "/help", "/start", "/menu"]:
-            send_msg(chat_id, "🎮 Owner Control Panel Active — Tap any button below or paste a YouTube gameplay link:", MAIN_KEYBOARD)
+                else:
+                    send_msg(chat_id, "No recent Short ID found to delete.", MAIN_KEYBOARD)
+            elif text in ["🎯 Focus: GTA 6", "🎯 Focus: Auto"] or text.startswith("/focus"):
+                val = "gta6" if "GTA 6" in text else ("auto" if "Auto" in text else text.replace("/focus", "").strip().lower() or "auto")
+                cfg["focus"] = val
+                send_msg(chat_id, f"🎯 Focus mode switched to: {val.upper()}", MAIN_KEYBOARD)
+            elif text in ["🔥 Live Hype", "/hype"]:
+                send_msg(chat_id, "🔥 Live US Gaming Hype Radar:\n• " + get_live_hype(), MAIN_KEYBOARD)
+            elif text in ["📊 Cloud Status", "/status"]:
+                conf = os.environ.get("RCLONE_CONF", "").strip()
+                os.makedirs(os.path.expanduser("~/.config/rclone"), exist_ok=True)
+                open(os.path.expanduser("~/.config/rclone/rclone.conf"), "w").write(conf)
+                try:
+                    m_cnt = len(json.loads(subprocess.check_output(["rclone", "lsjson", "mega:GTA_Clips"]).decode()))
+                except Exception:
+                    m_cnt = 0
+                try:
+                    p_cnt = len(json.loads(subprocess.check_output(["rclone", "lsjson", "pcloud:GTA_Clips"]).decode()))
+                except Exception:
+                    p_cnt = 0
+                hist_cnt = len(json.load(open("history.json")).get("used_windows", [])) if os.path.exists("history.json") else 0
+                send_msg(chat_id, f"📊 Cloud & Pipeline Status:\n• MEGA videos: {m_cnt}\n• pCloud videos: {p_cnt}\n• Unique cuts used: {hist_cnt}\n• Focus: {cfg.get('focus', 'auto').upper()}", MAIN_KEYBOARD)
+            elif text in ["📈 YT Stats", "/stats"]:
+                try:
+                    yt = get_yt_service()
+                    ch = yt.channels().list(part="statistics", mine=True).execute()["items"][0]["statistics"]
+                    send_msg(chat_id, f"📈 Live YouTube Studio Stats:\n• Subscribers: {ch.get('subscriberCount')}\n• Total Views: {ch.get('viewCount')}\n• Videos: {ch.get('videoCount')}", MAIN_KEYBOARD)
+                except Exception:
+                    hist_cnt = len(json.load(open("history.json")).get("used_windows", [])) if os.path.exists("history.json") else 0
+                    last_v = cfg.get("last_video_id") or "None yet"
+                    send_msg(chat_id, f"📈 Pipeline Upload Stats:\n• Total Shorts Auto-Published: {hist_cnt}\n• Latest Short: https://youtube.com/shorts/{last_v}\n(Note: Refresh token is upload-only; re-auth with youtube.readonly scope if you want live sub counts here)", MAIN_KEYBOARD)
+            elif text in ["❓ Help", "/help", "/start", "/menu"]:
+                send_msg(chat_id, "🎮 Owner Control Panel Active — Tap any button below or paste a YouTube gameplay link:", MAIN_KEYBOARD)
+        except Exception as err:
+            send_msg(CHAT_ID, f"⚠️ Command error: {err}", MAIN_KEYBOARD)
 
     if dirty:
         open("tg_offset.txt", "w").write(str(offset))
         json.dump(cfg, open("config.json", "w"), indent=2)
 
-# Save state and immediately chain the next listener run so there is zero dead gap!
 subprocess.run(["git", "config", "user.name", "OwnerBot"], check=False)
 subprocess.run(["git", "config", "user.email", "bot@users.noreply.github.com"], check=False)
 subprocess.run(["git", "add", "links.txt", "config.json", "tg_offset.txt"], check=False)
