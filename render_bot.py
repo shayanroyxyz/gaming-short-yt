@@ -1,4 +1,5 @@
 import os, re, time, json, base64, threading, requests
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"].strip()
 CHAT_ID = str(os.environ["TELEGRAM_CHAT_ID"]).strip()
@@ -15,7 +16,7 @@ MAIN_KB = {
         [{"text": "❓ Help"}, {"text": "❌ Cancel"}]
     ],
     "resize_keyboard": True,
-    "one_time_keyboard": False
+    "one_time_keyboard": True
 }
 
 TAG_KB = {
@@ -25,7 +26,8 @@ TAG_KB = {
         [{"text": "🧱 [Roblox]"}, {"text": "🔫 [Valorant]"}],
         [{"text": "❌ Cancel"}]
     ],
-    "resize_keyboard": True
+    "resize_keyboard": True,
+    "one_time_keyboard": True
 }
 
 def send(cid, text, kb=MAIN_KB):
@@ -56,23 +58,29 @@ def get_viral_gaming_hype():
     for q in ["GTA 6 secrets physics", "GTA 5 insane mods myths", "Minecraft 1000 IQ tricks", "Roblox viral obby secrets", "Valorant radiant clutches"]:
         try:
             r = requests.get(f"https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q={requests.utils.quote(q)}", timeout=6).json()
-            for s in r[1][:2]:
-                topics.append(s.title())
-        except Exception:
-            pass
-    return "\n• ".join(topics[:8]) if topics else "GTA 6 Hidden Map Details\n• GTA 4 vs GTA 6 Ragdoll Physics\n• Minecraft Secret Redstone Traps\n• GTA 5 Realistic Police Chase Mods"
+            for s in r[1][:2]: topics.append(s.title())
+        except Exception: pass
+    return "\n• ".join(topics[:8]) if topics else "GTA 6 Hidden Map Details\n• GTA 4 vs GTA 6 Ragdoll Physics\n• Minecraft Secret Redstone Traps"
 
 port = int(os.environ.get("PORT", 10000))
 threading.Thread(target=lambda: HTTPServer(("0.0.0.0", port), type("H", (BaseHTTPRequestHandler,), {"do_GET": lambda s: (s.send_response(200), s.end_headers(), s.wfile.write(b"OK"))})).serve_forever(), daemon=True).start()
 
-requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", timeout=10)
-offset, pending = 0, ""
+requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", params={"drop_pending_updates": True}, timeout=10)
+offset, pending, seen = 0, "", set()
 
 while True:
     try:
-        updates = requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates", params={"offset": offset, "timeout": 25}, timeout=30).json().get("result", [])
-        for u in updates:
-            offset = u["update_id"] + 1
+        resp = requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates", params={"offset": offset, "timeout": 25}, timeout=30).json()
+        if not resp.get("ok"):
+            time.sleep(5)
+            continue
+        for u in resp.get("result", []):
+            uid = u["update_id"]
+            offset = uid + 1
+            if uid in seen: continue
+            seen.add(uid)
+            if len(seen) > 200: seen = set(list(seen)[-100:])
+
             msg = u.get("message") or {}
             cid = str((msg.get("chat") or {}).get("id", ""))
             if cid != CHAT_ID: continue
