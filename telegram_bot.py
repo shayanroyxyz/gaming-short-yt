@@ -75,13 +75,19 @@ def queue_video_link(target_chat, url, raw_name):
         safe_name += ".mp4"
     with open("links.txt", "a") as f:
         f.write(f"{url} | {safe_name}\n")
-    send_msg(target_chat, f"✅ Queued for 0-Byte Cloud Download:\nFile: {safe_name}\nDownloading 720p straight to MEGA/pCloud now!", MAIN_KEYBOARD)
+    # Commit immediately and dispatch load_links.yml directly so it never waits
+    subprocess.run(["git", "config", "user.name", "OwnerBot"], check=False)
+    subprocess.run(["git", "config", "user.email", "bot@users.noreply.github.com"], check=False)
+    subprocess.run(["git", "add", "links.txt"], check=False)
+    subprocess.run(["git", "commit", "-m", f"Queue {safe_name}"], check=False)
+    if GH_PAT:
+        subprocess.run(["git", "push", f"https://x-access-token:{GH_PAT}@github.com/{REPO}.git"], check=False)
+    trigger_workflow("load_links.yml")
+    send_msg(target_chat, f"✅ Queued & Loader Started!\nFile: {safe_name}\nDownloading 720p straight to MEGA/pCloud now!", MAIN_KEYBOARD)
 
 if not TOKEN or not CHAT_ID:
-    print("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID.")
     exit(0)
 
-# Remove any broken external webhook so live polling always works
 requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", timeout=10)
 
 offset = int(open("tg_offset.txt").read().strip()) if os.path.exists("tg_offset.txt") else 0
@@ -90,7 +96,6 @@ allowed_chats = {CHAT_ID}
 if CHANNEL_ID:
     allowed_chats.add(CHANNEL_ID)
 
-# Live long-poll for 260 seconds (~4.3 minutes) for instant 1-second button responses
 deadline = time.time() + 260
 dirty = False
 
@@ -109,7 +114,6 @@ while time.time() < deadline:
         chat_id = str((msg.get("chat") or {}).get("id", ""))
         user_id = str((msg.get("from") or {}).get("id", ""))
 
-        # Accept messages from owner private chat OR authorized group/channel where owner posts
         if chat_id not in allowed_chats and user_id != CHAT_ID:
             continue
 
@@ -163,8 +167,14 @@ while time.time() < deadline:
             conf = os.environ.get("RCLONE_CONF", "").strip()
             os.makedirs(os.path.expanduser("~/.config/rclone"), exist_ok=True)
             open(os.path.expanduser("~/.config/rclone/rclone.conf"), "w").write(conf)
-            m_cnt = len(json.loads(subprocess.check_output(["rclone", "lsjson", "mega:GTA_Clips"]).decode()))
-            p_cnt = len(json.loads(subprocess.check_output(["rclone", "lsjson", "pcloud:GTA_Clips"]).decode()))
+            try:
+                m_cnt = len(json.loads(subprocess.check_output(["rclone", "lsjson", "mega:GTA_Clips"]).decode()))
+            except Exception:
+                m_cnt = 0
+            try:
+                p_cnt = len(json.loads(subprocess.check_output(["rclone", "lsjson", "pcloud:GTA_Clips"]).decode()))
+            except Exception:
+                p_cnt = 0
             hist_cnt = len(json.load(open("history.json")).get("used_windows", [])) if os.path.exists("history.json") else 0
             send_msg(chat_id, f"📊 Cloud & Pipeline Status:\n• MEGA videos: {m_cnt}\n• pCloud videos: {p_cnt}\n• Unique cuts used: {hist_cnt}\n• Focus: {cfg.get('focus', 'auto').upper()}", MAIN_KEYBOARD)
         elif text in ["📈 YT Stats", "/stats"]:
@@ -177,3 +187,12 @@ while time.time() < deadline:
     if dirty:
         open("tg_offset.txt", "w").write(str(offset))
         json.dump(cfg, open("config.json", "w"), indent=2)
+
+# Save state and immediately chain the next listener run so there is zero dead gap!
+subprocess.run(["git", "config", "user.name", "OwnerBot"], check=False)
+subprocess.run(["git", "config", "user.email", "bot@users.noreply.github.com"], check=False)
+subprocess.run(["git", "add", "links.txt", "config.json", "tg_offset.txt"], check=False)
+subprocess.run(["git", "commit", "-m", "Telegram state sync"], check=False)
+if GH_PAT:
+    subprocess.run(["git", "push", f"https://x-access-token:{GH_PAT}@github.com/{REPO}.git"], check=False)
+trigger_workflow("telegram_listener.yml")
