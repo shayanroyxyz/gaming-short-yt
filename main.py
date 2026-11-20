@@ -18,29 +18,67 @@ CAPTION_STYLES = [
     "FontName=DejaVu Sans,FontSize=25,Bold=1,PrimaryColour=&H00FFFF00,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=5"
 ]
 
-def send_telegram_with_buttons(text, video_path=None):
+MAIN_KEYBOARD = {
+    "keyboard": [
+        [{"text": "🚀 Make Short Now"}, {"text": "➕ Add Video Link"}],
+        [{"text": "🔥 Live Hype"}, {"text": "📊 Cloud Status"}],
+        [{"text": "📈 YT Stats"}, {"text": "🗑️ Delete Last"}],
+        [{"text": "🎯 Focus: GTA 6"}, {"text": "🎯 Focus: Auto"}],
+        [{"text": "❓ Help"}, {"text": "❌ Cancel"}]
+    ],
+    "resize_keyboard": True,
+    "is_persistent": True
+}
+
+def deliver_to_telegram(text, video_path=None, ig_caption=""):
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
-    if not token or not chat_id:
+    channel_id = os.environ.get("TELEGRAM_CHANNEL_ID", "").strip()
+    if not token:
         return
-    kb = json.dumps({
-        "inline_keyboard": [
-            [{"text": "🚀 Make Another Now", "callback_data": "MAKE_NOW"}, {"text": "📈 YT Stats", "callback_data": "STATS"}],
-            [{"text": "📊 Cloud Status", "callback_data": "STATUS"}, {"text": "🗑️ Delete Last Short", "callback_data": "DELETE_LAST"}]
-        ]
-    })
     try:
-        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": text, "reply_markup": kb}, timeout=15)
-        if video_path and os.path.exists(video_path):
+        if chat_id:
+            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": text, "reply_markup": json.dumps(MAIN_KEYBOARD)}, timeout=15)
+            if video_path and os.path.exists(video_path):
+                with open(video_path, "rb") as vf:
+                    requests.post(f"https://api.telegram.org/bot{token}/sendVideo", data={"chat_id": chat_id, "caption": ig_caption[:1000]}, files={"video": vf}, timeout=60)
+        if channel_id and video_path and os.path.exists(video_path):
             with open(video_path, "rb") as vf:
-                requests.post(
-                    f"https://api.telegram.org/bot{token}/sendVideo",
-                    data={"chat_id": chat_id, "caption": "Tap Share -> Instagram Reels to cross-post!"},
-                    files={"video": vf},
-                    timeout=60
-                )
+                requests.post(f"https://api.telegram.org/bot{token}/sendVideo", data={"chat_id": channel_id, "caption": ig_caption[:1000]}, files={"video": vf}, timeout=60)
     except Exception as e:
-        print("Telegram notify skip:", e)
+        print("Telegram delivery skip:", e)
+
+def publish_instagram_reel(remote_pcloud_path, ig_caption):
+    ig_user = os.environ.get("IG_USER_ID", "").strip()
+    ig_token = os.environ.get("IG_ACCESS_TOKEN", "").strip()
+    if not ig_user or not ig_token:
+        return "Skipped (IG_USER_ID / IG_ACCESS_TOKEN not configured)"
+    try:
+        public_url = subprocess.check_output(["rclone", "link", remote_pcloud_path]).decode().strip()
+        # Convert pCloud share link to direct MP4 stream parameter for Meta Graph API
+        if "u.pcloud.link" in public_url and "download=" not in public_url:
+            public_url += ("&" if "?" in public_url else "?") + "forcedownload=1"
+        c_res = requests.post(
+            f"https://graph.facebook.com/v21.0/{ig_user}/media",
+            data={"media_type": "REELS", "video_url": public_url, "caption": ig_caption, "share_to_feed": "true", "access_token": ig_token},
+            timeout=30
+        ).json()
+        creation_id = c_res.get("id")
+        if not creation_id:
+            return f"IG Container error: {c_res}"
+        for _ in range(12):
+            time.sleep(5)
+            st = requests.get(f"https://graph.facebook.com/v21.0/{creation_id}", params={"fields": "status_code", "access_token": ig_token}, timeout=15).json()
+            if st.get("status_code") == "FINISHED":
+                break
+        pub = requests.post(
+            f"https://graph.facebook.com/v21.0/{ig_user}/media_publish",
+            data={"creation_id": creation_id, "access_token": ig_token},
+            timeout=30
+        ).json()
+        return f"Published Reel ID: {pub.get('id', pub)}"
+    except Exception as e:
+        return f"IG Reel error: {e}"
 
 def fetch_live_hype_context():
     topics = []
@@ -93,7 +131,7 @@ def ask_ai_brain(prompt):
 def stream_unique_action_clips(hist, focus):
     conf = os.environ.get("RCLONE_CONF", "").strip()
     if not conf:
-        raise RuntimeError("Missing RCLONE_CONF secret in GitHub Secrets!")
+        raise RuntimeError("Missing RCLONE_CONF secret!")
     os.makedirs(os.path.expanduser("~/.config/rclone"), exist_ok=True)
     open(os.path.expanduser("~/.config/rclone/rclone.conf"), "w").write(conf)
 
@@ -108,7 +146,7 @@ def stream_unique_action_clips(hist, focus):
             pass
 
     if not pool:
-        raise RuntimeError("No videos found in mega:GTA_Clips or pcloud:GTA_Clips! Send a YouTube link to your Telegram bot first.")
+        raise RuntimeError("No videos in mega:GTA_Clips or pcloud:GTA_Clips! Paste a YouTube link in Telegram first.")
 
     focused = [x for x in pool if focus != "auto" and focus in x[1].lower()]
     if focused:
@@ -164,16 +202,17 @@ def generate_viral_package(fname, hist, focus):
     ]
     recent_avoid = ", ".join(hist["used_topics"][-12:])
     prompt = (
-        f"You are a viral US gaming YouTube Shorts strategist. Source game file: {clean_name}. Focus mode: {focus}.\n"
+        f"You are a viral Tier-1 US gaming creator for YouTube Shorts & Instagram Reels. Source game file: {clean_name}. Focus mode: {focus}.\n"
         f"Live US Gaming Hype Today: {hype_now}.\n"
         f"Format: {random.choice(angles)}.\n"
         f"Avoid repeating these recent topics: [{recent_avoid}].\n"
-        "Target metrics: 75%+ stayed-to-watch ratio and 100%+ loop retention on a 14-second Short for a high-RPM US audience.\n"
-        "Output ONLY valid JSON with keys: title, top_hook, script, first_comment, tags\n"
-        "- title: curiosity-gap title under 70 chars ending with #shorts #gaming\n"
+        "Target metrics: 75%+ stayed-to-watch ratio and 100%+ loop retention on a 14-second video for a high-RPM US/UK/Canada audience.\n"
+        "Output ONLY valid JSON with keys: title, top_hook, script, first_comment, ig_caption, tags\n"
+        "- title: curiosity-gap YT title under 70 chars ending with #shorts #gaming\n"
         "- top_hook: 4 to 6 words in ALL CAPS for a persistent top banner at 0:00 posing immediate stakes/curiosity (no emojis)\n"
         "- script: EXACTLY 28 to 34 words total (fits 13.5s brisk voiceover). Start instantly with action (no intro). End mid-thought so the final word loops seamlessly back into the first word!\n"
         "- first_comment: 1 short engaging question to pin in comments to spark debate\n"
+        "- ig_caption: punchy US-targeted Instagram Reels caption with CTA (Follow for daily gaming secrets!) + 10 high-reach Tier-1 gaming hashtags\n"
         "- tags: list of 8 high-search US gaming tags without #"
     )
     raw = ask_ai_brain(prompt)
@@ -185,6 +224,7 @@ def generate_viral_package(fname, hist, focus):
         data["top_hook"].replace("'", "").replace('"', ""),
         data["script"],
         data.get("first_comment", "Which game should we test next? 👇"),
+        data.get("ig_caption", f"{data['title']} 🔥 Follow for daily gaming secrets! #gaming #gta6 #gta5 #reels #gamer #viral"),
         data.get("tags", ["GTA6", "GTA5", "Shorts", "Gaming"])
     )
 
@@ -232,7 +272,7 @@ def render_with_dynamic_fx():
         "-c:a", "aac", "-b:a", "192k", "final.mp4"
     ], check=True)
 
-def publish_everywhere(title, script, first_comment, tags, cfg):
+def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg):
     creds = Credentials(
         token=None,
         refresh_token=os.environ["YOUTUBE_REFRESH_TOKEN"],
@@ -263,8 +303,17 @@ def publish_everywhere(title, script, first_comment, tags, cfg):
     except Exception as e:
         print("Comment post skip:", e)
 
-    subprocess.run(["rclone", "copyto", "final.mp4", f"pcloud:Ready_Reels/{vid_id}.mp4"], check=False)
-    send_telegram_with_buttons(f"✅ Published New Short!\nTitle: {title}\nURL: https://youtube.com/shorts/{vid_id}", "final.mp4")
+    pcloud_target = f"pcloud:Ready_Reels/{vid_id}.mp4"
+    subprocess.run(["rclone", "copyto", "final.mp4", pcloud_target], check=False)
+    ig_status = publish_instagram_reel(pcloud_target, ig_caption)
+
+    summary = (
+        f"✅ Published New Short!\n"
+        f"Title: {title}\n"
+        f"YouTube: https://youtube.com/shorts/{vid_id}\n"
+        f"Instagram Reels: {ig_status}"
+    )
+    deliver_to_telegram(summary, "final.mp4", ig_caption)
 
 if __name__ == "__main__":
     try:
@@ -272,12 +321,12 @@ if __name__ == "__main__":
         cfg = json.load(open("config.json")) if os.path.exists("config.json") else {"focus": "auto", "last_video_id": "", "pending_url": ""}
         focus = cfg.get("focus", "auto")
         fname = stream_unique_action_clips(hist, focus)
-        title, top_hook, script, first_comment, tags = generate_viral_package(fname, hist, focus)
+        title, top_hook, script, first_comment, ig_caption, tags = generate_viral_package(fname, hist, focus)
         asyncio.run(build_voice_and_captions(script, top_hook))
         render_with_dynamic_fx()
-        publish_everywhere(title, script, first_comment, tags, cfg)
+        publish_everywhere(title, script, first_comment, ig_caption, tags, cfg)
         json.dump({"used_windows": hist["used_windows"][-400:], "used_topics": hist["used_topics"][-100:]}, open("history.json", "w"), indent=2)
         json.dump(cfg, open("config.json", "w"), indent=2)
     except Exception as e:
-        send_telegram_with_buttons(f"⚠️ Pipeline Alert: {e}")
+        deliver_to_telegram(f"⚠️ Pipeline Alert: {e}")
         raise
