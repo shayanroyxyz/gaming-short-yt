@@ -1,28 +1,42 @@
 name: 0-Byte Cloud Video Loader
 on:
+  workflow_dispatch:
   push:
     paths:
-      - 'links.txt'
-  workflow_dispatch:
+      - "links.txt"
+
 jobs:
-  load:
-    if: github.repository == 'shayanroyxyz/gta-shorts-agent'
+  load-videos:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg rclone
-      - run: pip install -q yt-dlp[default] requests
-      - env:
-          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
-          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install rclone, ffmpeg & dependencies
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq rclone ffmpeg curl
+          pip install -q requests yt-dlp
+      - name: Start Local Telegram Bot API (2GB File Support)
+        if: ${{ secrets.TG_API_ID != '' && secrets.TG_API_HASH != '' }}
+        run: |
+          docker run -d --name tg-api -p 8081:8081 -v /tmp/tg-api:/var/lib/telegram-bot-api \
+            -e TELEGRAM_API_ID="${{ secrets.TG_API_ID }}" \
+            -e TELEGRAM_API_HASH="${{ secrets.TG_API_HASH }}" \
+            -e TELEGRAM_LOCAL=1 \
+            aiogram/telegram-bot-api:latest
+          sleep 5
+      - name: Transfer Video to MEGA & pCloud
+        env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+          TG_API_BASE: ${{ secrets.TG_API_ID != '' && 'http://localhost:8081' || 'https://api.telegram.org' }}
         run: python loader.py
-      - run: |
-          git config user.name "LoaderBot"
-          git config user.email "bot@users.noreply.github.com"
-          touch links.txt
+      - name: Clear processed links.txt
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add links.txt
-          git commit -m "Clear processed links" || true
-          git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git || true
+          git diff --staged --quiet || (git commit -m "Clear processed queue" && git push)

@@ -30,6 +30,8 @@ TAG_KB = {
     "one_time_keyboard": True
 }
 
+FOLDED_KB = {"remove_keyboard": True}
+
 def send(cid, text, kb=MAIN_KB):
     requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": cid, "text": text, "reply_markup": json.dumps(kb)}, timeout=15)
 
@@ -45,13 +47,13 @@ def gh_put(path, txt, sha, msg):
     if sha: p["sha"] = sha
     requests.put(f"https://api.github.com/repos/{REPO}/contents/{path}", headers=GH_HEADERS, json=p, timeout=15)
 
-def queue_link(cid, url, raw_name):
+def queue_item(cid, source, raw_name):
     safe = re.sub(r"[^a-zA-Z0-9_\[\]-]", "_", raw_name.strip())
     if not safe.endswith(".mp4"): safe += ".mp4"
     cur, sha = gh_get("links.txt")
-    gh_put("links.txt", cur + f"{url} | {safe}\n", sha, f"Queue {safe}")
+    gh_put("links.txt", cur + f"{source} | {safe}\n", sha, f"Queue {safe}")
     trigger_wf("load_links.yml")
-    send(cid, f"✅ Queued & Loader Started!\nFile: {safe}\nDownloading 720p straight to MEGA/pCloud now!", MAIN_KB)
+    send(cid, f"✅ Queued & Cloud Transfer Started!\n📁 File: {safe}\n☁️ Saving straight to MEGA & pCloud now (menu folded).", FOLDED_KB)
 
 def get_viral_gaming_hype():
     topics = []
@@ -64,6 +66,16 @@ def get_viral_gaming_hype():
 
 port = int(os.environ.get("PORT", 10000))
 threading.Thread(target=lambda: HTTPServer(("0.0.0.0", port), type("H", (BaseHTTPRequestHandler,), {"do_GET": lambda s: (s.send_response(200), s.end_headers(), s.wfile.write(b"OK"))})).serve_forever(), daemon=True).start()
+
+# Register native Menu button commands so menu starts folded by default
+requests.post(f"https://api.telegram.org/bot{TOKEN}/setMyCommands", json={"commands": [
+    {"command": "menu", "description": "Open Control Buttons"},
+    {"command": "make", "description": "Make & Publish Short Now"},
+    {"command": "hype", "description": "Live Viral Gaming Trends"},
+    {"command": "status", "description": "Cloud & Pipeline Status"},
+    {"command": "stats", "description": "Latest YouTube Short"},
+    {"command": "cancel", "description": "Fold / Cancel"}
+]}, timeout=10)
 
 requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", params={"drop_pending_updates": True}, timeout=10)
 offset, pending, seen = 0, "", set()
@@ -84,36 +96,49 @@ while True:
             msg = u.get("message") or {}
             cid = str((msg.get("chat") or {}).get("id", ""))
             if cid != CHAT_ID: continue
+
+            # 1. Handle Forwarded Video from Downloader Bot OR Direct Snaptube Video Upload
+            media = msg.get("video") or msg.get("document")
+            if media and media.get("file_id"):
+                fid = media["file_id"]
+                cap = (msg.get("caption") or "").strip()
+                pending = f"tgfile:{fid}"
+                send(cid, f"🎥 Video received ({round(media.get('file_size',0)/1048576, 1)} MB)!\nTap a game tag below (or type custom name) to save to MEGA/pCloud:", TAG_KB)
+                continue
+
             text = (msg.get("text") or "").strip()
             if not text: continue
 
-            if text == "❌ Cancel":
+            if text in ["❌ Cancel", "/cancel"]:
                 pending = ""
-                send(cid, "❌ Cancelled. Ready!", MAIN_KB)
+                send(cid, "✅ Folded. Tap ≡ Menu or /menu anytime.", FOLDED_KB)
+            elif text in ["/start", "/menu"]:
+                pending = ""
+                send(cid, "🎮 Owner Control Panel (auto-folds after tap):", MAIN_KB)
             elif "youtu.be/" in text or "youtube.com/" in text:
                 parts = text.split(None, 1)
-                if len(parts) > 1 and len(parts[1].strip()) > 2: queue_link(cid, parts[0], parts[1]); pending = ""
+                if len(parts) > 1 and len(parts[1].strip()) > 2: queue_item(cid, parts[0], parts[1]); pending = ""
                 else: pending = parts[0]; send(cid, "🎬 Link received! Type a file name OR tap a game tag:", TAG_KB)
             elif pending:
                 tmap = {"🎮 [GTA6]": "GTA6", "🚗 [GTA5]": "GTA5", "🗽 [GTA4]": "GTA4", "⛏️ [Minecraft]": "Minecraft", "🧱 [Roblox]": "Roblox", "🔫 [Valorant]": "Valorant"}
-                queue_link(cid, pending, f"[{tmap[text]}]_Gameplay_{int(time.time()) % 10000}.mp4" if text in tmap else text)
+                queue_item(cid, pending, f"[{tmap[text]}]_Gameplay_{int(time.time()) % 10000}.mp4" if text in tmap else text)
                 pending = ""
-            elif text == "➕ Add Video Link": send(cid, "📎 Paste any YouTube gameplay link right now!", MAIN_KB)
-            elif text in ["🚀 Make Short Now", "/make"]: trigger_wf("auto_upload.yml"); send(cid, "🚀 Triggered! Publishing to YT, IG Reels & Telegram in ~60s.", MAIN_KB)
+            elif text == "➕ Add Video Link": send(cid, "📎 Forward a video from @gozillabot_downloaderbot_bot, upload from Snaptube, or paste a YouTube link!", FOLDED_KB)
+            elif text in ["🚀 Make Short Now", "/make"]: trigger_wf("auto_upload.yml"); send(cid, "🚀 Triggered! Publishing to YT, IG Reels & Telegram in ~60s.", FOLDED_KB)
             elif text in ["🎯 Focus: GTA 6", "🎯 Focus: Auto"]:
                 val = "gta6" if "GTA 6" in text else "auto"
                 cur, sha = gh_get("config.json")
                 cfg = json.loads(cur) if cur else {"focus": "auto", "last_video_id": ""}
                 cfg["focus"] = val
                 gh_put("config.json", json.dumps(cfg, indent=2), sha, f"Focus {val}")
-                send(cid, f"🎯 Focus switched to: {val.upper()}", MAIN_KB)
-            elif text in ["🔥 Live Hype", "/hype"]: send(cid, "🔥 Live Viral Gaming Search Trends:\n• " + get_viral_gaming_hype(), MAIN_KB)
+                send(cid, f"🎯 Focus switched to: {val.upper()}", FOLDED_KB)
+            elif text in ["🔥 Live Hype", "/hype"]: send(cid, "🔥 Live Viral Gaming Search Trends:\n• " + get_viral_gaming_hype(), FOLDED_KB)
             elif text in ["📊 Cloud Status", "/status"]:
                 h, _ = gh_get("history.json"); c, _ = gh_get("config.json")
-                send(cid, f"📊 Pipeline Status:\n• Unique Shorts Made: {len(json.loads(h).get('used_windows', [])) if h else 0}\n• Focus: {(json.loads(c).get('focus', 'auto') if c else 'auto').upper()}\n• Schedule: 6x Daily (US Prime Time)", MAIN_KB)
+                send(cid, f"📊 Pipeline Status:\n• Unique Shorts Made: {len(json.loads(h).get('used_windows', [])) if h else 0}\n• Focus: {(json.loads(c).get('focus', 'auto') if c else 'auto').upper()}\n• Schedule: 6x Daily (US Prime Time)", FOLDED_KB)
             elif text in ["📈 YT Stats", "/stats"]:
                 c, _ = gh_get("config.json"); vid = json.loads(c).get("last_video_id", "") if c else ""
-                send(cid, f"📈 Latest Short: https://youtube.com/shorts/{vid}" if vid else "📈 No Short yet — tap 🚀 Make Short Now!", MAIN_KB)
+                send(cid, f"📈 Latest Short: https://youtube.com/shorts/{vid}" if vid else "📈 No Short yet — tap /make!", FOLDED_KB)
             elif text in ["🗑️ Delete Last", "/delete_last"]:
                 c, sha = gh_get("config.json")
                 cfg = json.loads(c) if c else {}
@@ -121,8 +146,9 @@ while True:
                 if vid:
                     cfg["last_video_id"] = ""
                     gh_put("config.json", json.dumps(cfg, indent=2), sha, "Clear last_video_id")
-                    send(cid, f"🗑️ Cleared Short ID {vid} from queue.", MAIN_KB)
+                    send(cid, f"🗑️ Cleared Short ID {vid} from queue.", FOLDED_KB)
                 else:
-                    send(cid, "No recent Short ID stored.", MAIN_KB)
-            else: send(cid, "🎮 24/7 Instant Owner Control Panel Active:", MAIN_KB)
+                    send(cid, "No recent Short ID stored.", FOLDED_KB)
+            else:
+                send(cid, "🎮 Control Panel (tap a button or ❌ Cancel to fold):", MAIN_KB)
     except Exception: time.sleep(3)
