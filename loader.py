@@ -174,6 +174,8 @@ def upload_single_cloud(local_path, filename, file_size):
         upload = run(["rclone", "copyto", str(local_path), target], check=False, capture=True)
         if upload.returncode != 0:
             errors.append(f"{remote}: {(upload.stderr or 'upload failed')[-300:]}")
+            # Remove any partial object so a later retry cannot mistake it for a duplicate.
+            run(["rclone", "deletefile", target], check=False)
             continue
         verify = run(["rclone", "check", str(local_path), target, "--one-way"], check=False, capture=True)
         if verify.returncode == 0:
