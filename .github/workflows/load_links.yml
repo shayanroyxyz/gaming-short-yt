@@ -48,18 +48,40 @@ jobs:
           TG_API_BASE: ${{ secrets.TG_API_BASE }}
         run: python loader.py
 
-      - name: Save remaining retry queue
+      - name: Save retry queue without losing concurrent Telegram appends
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add links.txt
-          if git diff --cached --quiet; then
-            echo "Queue unchanged."
-            exit 0
-          fi
-          git commit -m "Retain only unprocessed ingestion queue items"
-          for attempt in 1 2 3; do
-            git pull --rebase origin main && git push origin HEAD:main && exit 0
+          cp links.txt /tmp/retry_queue.txt
+          git show HEAD:links.txt > /tmp/initial_queue.txt
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+            python - <<'PY'
+          from collections import Counter
+          from pathlib import Path
+          initial = [x.strip() for x in Path("/tmp/initial_queue.txt").read_text().splitlines() if x.strip()]
+          latest = [x.strip() for x in Path("links.txt").read_text().splitlines() if x.strip()]
+          retries = [x.strip() for x in Path("/tmp/retry_queue.txt").read_text().splitlines() if x.strip()]
+          remaining = Counter(initial)
+          newly_appended = []
+          for item in latest:
+              if remaining[item]:
+                  remaining[item] -= 1
+              else:
+                  newly_appended.append(item)
+          merged = retries + newly_appended
+          Path("links.txt").write_text("".join(item + "\n" for item in merged))
+          PY
+            git add links.txt
+            if git diff --cached --quiet; then
+              echo "Queue already current."
+              exit 0
+            fi
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Persist ingestion retries and preserve new queue items"
+            if git push origin HEAD:main; then
+              exit 0
+            fi
             sleep $((attempt * 3))
           done
           echo "Could not persist queue after retries." >&2
