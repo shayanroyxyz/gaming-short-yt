@@ -1,25 +1,28 @@
-"""Reliable link/video ingestion to MEGA and pCloud.
+"""Cloud ingestion using Telegram MTProto and randomized single-cloud storage.
 
-Queue format: <youtube-url-or-tgfile:file_id> | <filename>
-Failed items remain in links.txt for a later retry. A queue item is removed only
-after both cloud destinations have been verified.
+Queue format: <source> | <filename>[ | retries=N]
+Sources: tgmsg:<chat_id>:<message_id> or an HTTP(S) URL.
 """
+import json
 import os
+import random
 import re
-import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import requests
+from telethon.sync import TelegramClient
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+API_ID = os.environ.get("TG_API_ID", "").strip()
+API_HASH = os.environ.get("TG_API_HASH", "").strip()
 RCLONE_CONF = os.environ.get("RCLONE_CONF", "").strip()
 YT_COOKIES = os.environ.get("YT_COOKIES", "").strip()
-TG_API = os.environ.get("TG_API_BASE", "https://api.telegram.org").rstrip("/")
 QUEUE = Path("links.txt")
+MAX_RETRIES = 3
 MIN_VIDEO_BYTES = 100_000
+CLOUDS = ("mega", "pcloud")
 SESSION = requests.Session()
 
 
@@ -30,24 +33,22 @@ def notify(message):
         SESSION.post(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
             data={"chat_id": CHAT_ID, "text": message[:4000]},
-            timeout=15,
-        )
-    except requests.RequestException:
-        pass
+            timeout=20,
+        ).raise_for_status()
+    except requests.RequestException as exc:
+        print(f"Telegram notification failed: {exc}")
 
 
 def run(command, *, check=True, capture=False):
     return subprocess.run(
-        command,
-        check=check,
-        text=True,
+        command, check=check, text=True,
         stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
         stderr=subprocess.PIPE if capture else subprocess.DEVNULL,
     )
 
 
 def safe_filename(value):
-    name = re.sub(r"[^a-zA-Z0-9_.()\[\]-]", "_", value.strip())
+    name = re.sub(r"[^a-zA-Z0-9_.()\[\]-]", "_", Path(value.strip()).name)
     name = name.strip("._")
     if not name:
         raise ValueError("A non-empty filename is required")
@@ -56,116 +57,158 @@ def safe_filename(value):
     return name[:180]
 
 
-def download_telegram_file(file_id, destination):
-    if not TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured")
+def parse_queue_line(line):
+    parts = [part.strip() for part in line.split("|")]
+    if len(parts) < 2:
+        raise ValueError("Expected source | filename")
+    source, filename = parts[0], safe_filename(parts[1])
+    retries = 0
+    for part in parts[2:]:
+        match = re.fullmatch(r"retries\s*=\s*(\d+)", part, re.IGNORECASE)
+        if match:
+            retries = int(match.group(1))
+    return source, filename, retries
 
-    response = SESSION.get(
-        f"{TG_API}/bot{TOKEN}/getFile",
-        params={"file_id": file_id},
-        timeout=60,
-    )
-    response.raise_for_status()
-    payload = response.json()
-    if not payload.get("ok"):
-        raise RuntimeError(f"Telegram getFile failed: {payload.get('description', 'unknown error')}")
 
-    file_path = (payload.get("result") or {}).get("file_path")
-    if not file_path:
-        raise RuntimeError("Telegram did not return a file_path")
+def download_telegram_message(source, destination):
+    if not (TOKEN and API_ID and API_HASH):
+        raise RuntimeError("TELEGRAM_BOT_TOKEN, TG_API_ID and TG_API_HASH are required for MTProto downloads")
+    match = re.fullmatch(r"tgmsg:(-?\d+):(\d+)", source)
+    if not match:
+        raise ValueError("Invalid Telegram source; expected tgmsg:<chat_id>:<message_id>")
+    chat_id, message_id = int(match.group(1)), int(match.group(2))
 
-    # Local Bot API servers may return an absolute path on the runner/container.
-    if os.path.isabs(file_path) and os.path.isfile(file_path):
-        shutil.copy2(file_path, destination)
-    else:
-        url = f"{TG_API}/file/bot{TOKEN}/{file_path.lstrip('/')}"
-        with SESSION.get(url, stream=True, timeout=(30, 600)) as stream:
-            stream.raise_for_status()
-            with open(destination, "wb") as output:
-                for chunk in stream.iter_content(chunk_size=1024 * 1024):
-                    if chunk:
-                        output.write(chunk)
+    # A fresh ephemeral bot session is created on the runner; no phone storage or
+    # persistent user-account session is required. MTProto supports large media.
+    with TelegramClient("telegram_ingest_bot", int(API_ID), API_HASH) as client:
+        client.start(bot_token=TOKEN)
+        message = client.get_messages(chat_id, ids=message_id)
+        if not message or not message.media:
+            raise RuntimeError(f"Telegram message {message_id} in chat {chat_id} has no downloadable media")
+        downloaded = client.download_media(message, file=str(destination))
+        if not downloaded:
+            raise RuntimeError("Telethon did not return a downloaded media path")
 
     if not destination.is_file() or destination.stat().st_size < MIN_VIDEO_BYTES:
-        raise RuntimeError("Telegram download is empty or too small to be a valid video")
+        raise RuntimeError("Telegram MTProto download is empty or too small")
+    return destination.stat().st_size
 
 
 def download_youtube(url, destination):
     command = [
-        "yt-dlp",
-        "--no-playlist",
-        "--no-progress",
+        "yt-dlp", "--no-playlist", "--no-progress",
         "-f", "best[height<=720][ext=mp4]/best[height<=720]/best",
         "-o", str(destination),
     ]
     if YT_COOKIES:
         cookie_file = Path("/tmp/yt-cookies.txt")
-        cookie_file.write_text(YT_COOKIES)
+        cookie_file.write_text(YT_COOKIES, encoding="utf-8")
         command[1:1] = ["--cookies", str(cookie_file)]
     command.append(url)
     run(command)
     if not destination.is_file() or destination.stat().st_size < MIN_VIDEO_BYTES:
         raise RuntimeError("yt-dlp did not produce a valid video file")
+    return destination.stat().st_size
 
 
-def remote_file_exists(remote_path):
-    result = run(["rclone", "lsjson", remote_path], check=False, capture=True)
-    return result.returncode == 0 and bool(result.stdout.strip())
+def cloud_listing(remote):
+    result = run(["rclone", "lsf", "--files-only", f"{remote}:GTA_Clips"], check=False, capture=True)
+    if result.returncode != 0:
+        # An empty, not-yet-created folder is acceptable; an unavailable remote is not.
+        probe = run(["rclone", "about", "--json", f"{remote}:"], check=False, capture=True)
+        if probe.returncode != 0:
+            raise RuntimeError(f"Cannot access {remote}: {result.stderr[-300:]}")
+        return set()
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
 
 
-def transfer_to_both_clouds(local_path, filename):
-    destinations = [
-        f"mega:GTA_Clips/{filename}",
-        f"pcloud:GTA_Clips/{filename}",
+def cloud_space(remote):
+    result = run(["rclone", "about", "--json", f"{remote}:"], check=False, capture=True)
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout)
+        total = int(data.get("total") or 0)
+        free = int(data.get("free") or 0)
+        used = int(data.get("used") if data.get("used") is not None else max(0, total - free))
+        return {"total": total, "free": free, "used": used}
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def format_gb(value):
+    return f"{value / (1024 ** 3):.2f} GB" if value is not None else "unknown"
+
+
+def choose_cloud(file_size):
+    spaces = {remote: cloud_space(remote) for remote in CLOUDS}
+    eligible = [
+        remote for remote, space in spaces.items()
+        if space is None or space["free"] >= file_size
     ]
-    failures = []
-    for target in destinations:
-        # --ignore-existing makes retries safe when the first cloud succeeded
-        # but the second cloud failed on the previous attempt.
-        result = run(
-            ["rclone", "copyto", "--ignore-existing", str(local_path), target],
-            check=False,
-            capture=True,
-        )
-        if result.returncode != 0 and not remote_file_exists(target):
-            detail = (result.stderr or "rclone failed").strip()[-500:]
-            failures.append(f"{target}: {detail}")
-            continue
+    if not eligible:
+        raise RuntimeError("Neither cloud reports enough free space for this file")
+    # Randomized weighted choice: more free capacity gives a proportionally
+    # higher chance, while both eligible clouds remain selectable.
+    weights = [max(1, spaces[r]["free"]) if spaces[r] else 1 for r in eligible]
+    return random.choices(eligible, weights=weights, k=1)[0], spaces
 
-        # Existence alone is not enough: verify bytes/checksum. If a previous
-        # interrupted transfer left a partial object, overwrite it and recheck.
-        check = run(
-            ["rclone", "check", str(local_path), target, "--one-way"],
-            check=False,
-            capture=True,
-        )
-        if check.returncode != 0:
-            repair = run(
-                ["rclone", "copyto", str(local_path), target],
-                check=False,
-                capture=True,
+
+def upload_single_cloud(local_path, filename, file_size):
+    listings = {remote: cloud_listing(remote) for remote in CLOUDS}
+    existing = [remote for remote, names in listings.items() if filename in names]
+    if existing:
+        return None, f"Skipped duplicate filename (already on {', '.join(existing)})"
+
+    first, _ = choose_cloud(file_size)
+    order = [first] + [remote for remote in CLOUDS if remote != first]
+    errors = []
+    for remote in order:
+        target = f"{remote}:GTA_Clips/{filename}"
+        upload = run(["rclone", "copyto", str(local_path), target], check=False, capture=True)
+        if upload.returncode != 0:
+            errors.append(f"{remote}: {(upload.stderr or 'upload failed')[-300:]}")
+            continue
+        verify = run(["rclone", "check", str(local_path), target, "--one-way"], check=False, capture=True)
+        if verify.returncode == 0:
+            return remote, "Uploaded and checksum-verified"
+        errors.append(f"{remote}: checksum verification failed")
+        # A failed partial upload must not block failover under the same filename.
+        run(["rclone", "deletefile", target], check=False)
+    raise RuntimeError("Both cloud uploads failed: " + "; ".join(errors))
+
+
+def storage_report(saved_cloud, filename, file_size, status):
+    counts, spaces = {}, {}
+    for remote in CLOUDS:
+        try:
+            counts[remote] = len(cloud_listing(remote))
+        except Exception:
+            counts[remote] = "unavailable"
+        spaces[remote] = cloud_space(remote)
+    lines = [
+        f"{'✅' if saved_cloud else 'ℹ️'} Unique Upload Complete!" if saved_cloud else "ℹ️ Duplicate Skipped",
+        f"File: {filename}",
+        f"Size: {format_gb(file_size)} ({file_size:,} bytes)",
+        f"Saved to: {saved_cloud or 'already existed'}",
+        f"MEGA videos: {counts['mega']} | pCloud videos: {counts['pcloud']}",
+    ]
+    for remote in CLOUDS:
+        space = spaces[remote]
+        if space:
+            lines.append(
+                f"{remote.upper()}: used {format_gb(space['used'])} / left {format_gb(space['free'])}"
             )
-            if repair.returncode != 0:
-                detail = (repair.stderr or "rclone repair failed").strip()[-500:]
-                failures.append(f"{target}: {detail}")
-                continue
-            check = run(
-                ["rclone", "check", str(local_path), target, "--one-way"],
-                check=False,
-                capture=True,
-            )
-        if check.returncode != 0:
-            detail = (check.stderr or "rclone verification failed").strip()[-500:]
-            failures.append(f"{target}: {detail}")
-    if failures:
-        raise RuntimeError("; ".join(failures))
+        else:
+            lines.append(f"{remote.upper()}: used unknown / left unknown (rclone about unavailable)")
+    lines.append(status)
+    notify("\n".join(lines))
 
 
 def main():
     if not QUEUE.exists():
         return
-    lines = QUEUE.read_text(encoding="utf-8").splitlines()
-    pending = [line.strip() for line in lines if line.strip()]
+    pending = [line.strip() for line in QUEUE.read_text(encoding="utf-8").splitlines() if line.strip()]
     if not pending:
         return
     if not RCLONE_CONF:
@@ -173,41 +216,53 @@ def main():
 
     config_dir = Path.home() / ".config" / "rclone"
     config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "rclone.conf").write_text(RCLONE_CONF)
+    (config_dir / "rclone.conf").write_text(RCLONE_CONF, encoding="utf-8")
 
     failed = []
-    succeeded = []
+    succeeded = 0
     for line in pending:
-        if "|" not in line:
-            failed.append(line)
-            notify(f"⚠️ Invalid queue entry kept for review: {line[:200]}")
+        try:
+            source, filename, retries = parse_queue_line(line)
+        except Exception as exc:
+            notify(f"⚠️ Invalid queue entry removed for manual review:\n{line[:250]}\n{exc}")
             continue
 
-        source, raw_name = (part.strip() for part in line.split("|", 1))
-        local_path = Path("/tmp") / safe_filename(raw_name)
+        if retries >= MAX_RETRIES:
+            notify(f"⛔ Retry limit reached; dropping queue item:\n{filename}")
+            continue
+
+        local_path = Path("/tmp") / f"ingest_{os.getpid()}_{filename}"
         try:
             if local_path.exists():
                 local_path.unlink()
-            if source.startswith("tgfile:"):
-                download_telegram_file(source.split(":", 1)[1].strip(), local_path)
+            if source.startswith("tgmsg:"):
+                file_size = download_telegram_message(source, local_path)
             elif source.startswith(("https://", "http://")):
-                download_youtube(source, local_path)
+                file_size = download_youtube(source, local_path)
             else:
-                raise ValueError("Unsupported source; expected an HTTP(S) URL or tgfile:file_id")
+                raise ValueError("Unsupported source; use tgmsg:<chat_id>:<message_id> or an HTTP(S) URL")
 
-            transfer_to_both_clouds(local_path, local_path.name)
-            succeeded.append(local_path.name)
-            notify(f"✅ Verified in MEGA and pCloud:\n📁 {local_path.name}")
-        except Exception as error:
-            failed.append(line)
-            notify(f"⚠️ Transfer failed; item kept in queue for retry:\n{raw_name}\n{str(error)[:700]}")
+            saved_cloud, status = upload_single_cloud(local_path, filename, file_size)
+            if saved_cloud:
+                succeeded += 1
+            storage_report(saved_cloud, filename, file_size, status)
+        except Exception as exc:
+            next_retry = retries + 1
+            if next_retry < MAX_RETRIES:
+                failed.append(f"{source} | {filename} | retries={next_retry}")
+                notify(
+                    f"⚠️ Transfer failed (retry {next_retry}/{MAX_RETRIES}); retained in queue:\n"
+                    f"{filename}\n{str(exc)[:650]}"
+                )
+            else:
+                notify(f"⛔ Transfer failed after {MAX_RETRIES} attempts; removed from queue:\n{filename}\n{str(exc)[:650]}")
         finally:
             if local_path.exists():
                 local_path.unlink()
 
-    # Preserve failures and any malformed entries. Do not silently empty queue.
+    # Retain only retryable failures. Workflow persists this queue back to GitHub.
     QUEUE.write_text("".join(f"{item}\n" for item in failed), encoding="utf-8")
-    print(f"Transfer summary: {len(succeeded)} succeeded, {len(failed)} retained for retry")
+    print(f"Ingestion summary: {succeeded} uploaded, {len(failed)} retryable")
 
 
 if __name__ == "__main__":
