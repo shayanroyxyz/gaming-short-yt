@@ -135,58 +135,71 @@ def stream_unique_action_clips(hist, focus):
     os.makedirs(os.path.expanduser("~/.config/rclone"), exist_ok=True)
     open(os.path.expanduser("~/.config/rclone/rclone.conf"), "w").write(conf)
 
-    pool = []
-    for remote in ["mega", "pcloud"]:
+    # Merge both cloud folders into one filename-keyed pool. If the same
+    # filename exists in both, keep both source choices but only one pool item.
+    pool = {}
+    for remote in ("mega", "pcloud"):
         try:
-            out = subprocess.check_output(["rclone", "lsjson", f"{remote}:GTA_Clips"], stderr=subprocess.DEVNULL).decode()
-            for f in json.loads(out):
-                if not f.get("IsDir") and f["Name"].lower().endswith((".mp4", ".mkv", ".webm")):
-                    pool.append((remote, f["Name"]))
-        except Exception:
-            pass
+            out = subprocess.check_output(
+                ["rclone", "lsjson", f"{remote}:GTA_Clips"],
+                stderr=subprocess.DEVNULL
+            ).decode()
+            for item in json.loads(out):
+                name = item.get("Name", "")
+                if not item.get("IsDir") and name.lower().endswith((".mp4", ".mkv", ".webm")):
+                    pool.setdefault(name, []).append(remote)
+        except Exception as exc:
+            print(f"Could not list {remote}: {exc}")
 
     if not pool:
-        raise RuntimeError("No videos in mega:GTA_Clips or pcloud:GTA_Clips! Paste a YouTube link in Telegram first.")
+        raise RuntimeError("No videos in mega:GTA_Clips or pcloud:GTA_Clips! Add a video in Telegram first.")
 
-    focused = [x for x in pool if focus != "auto" and focus in x[1].lower()]
-    if focused:
-        remote, fname = random.choice(focused)
+    filenames = list(pool)
+    focused = [name for name in filenames if focus != "auto" and focus.lower() in name.lower()]
+    gta_files = [name for name in filenames if "gta" in name.lower()]
+    fname = random.choice(focused) if focused else (
+        random.choice(gta_files) if gta_files and random.random() < 0.75 else random.choice(filenames)
+    )
+    source_remote = random.choice(pool[fname])
+    source_path = f"{source_remote}:GTA_Clips/{fname}"
+    local_source = "source_video" + (os.path.splitext(fname)[1] or ".mp4")
+
+    # Download from the cloud that actually contains the selected filename.
+    subprocess.run(["rclone", "copyto", source_path, local_source], check=True)
+    probe = subprocess.check_output([
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", local_source
+    ]).decode().strip()
+    dur = float(probe)
+    if dur < 15:
+        raise RuntimeError(f"Selected source video is too short ({dur:.1f}s): {fname}")
+
+    safe_start = int(dur * 0.06)
+    safe_end = max(safe_start + 25, int(dur * 0.92))
+    mid = (safe_start + safe_end) // 2
+    t1 = t2 = 0
+    for _ in range(40):
+        t1 = random.randint(safe_start, max(safe_start, mid - 10))
+        t2 = random.randint(mid, max(mid, safe_end - 10))
+        win_key = f"{fname}:{t1//15}:{t2//15}"
+        if win_key not in hist["used_windows"]:
+            hist["used_windows"].append(win_key)
+            break
     else:
-        gta_files = [x for x in pool if "gta" in x[1].lower()]
-        remote, fname = random.choice(gta_files) if (gta_files and random.random() < 0.75) else random.choice(pool)
+        raise RuntimeError(f"No unused clip windows remain for {fname}; add more source videos.")
 
-    srv = subprocess.Popen(["rclone", "serve", "http", f"{remote}:GTA_Clips", "--addr", "127.0.0.1:8080"])
-    try:
-        time.sleep(3)
-        url = f"http://127.0.0.1:8080/{urllib.parse.quote(fname)}"
-        probe = subprocess.check_output([
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", url
-        ]).decode().strip()
-        dur = float(probe)
+    for idx, ts in enumerate((t1, t2)):
+        subprocess.run([
+            "ffmpeg", "-y", "-ss", str(ts), "-t", "7.2",
+            "-i", local_source, "-c:v", "libx264", "-preset", "veryfast",
+            "-crf", "20", "-an", f"cut_{idx}.mp4"
+        ], check=True)
 
-        safe_start = int(dur * 0.06)
-        safe_end = max(safe_start + 25, int(dur * 0.92))
-        mid = (safe_start + safe_end) // 2
-
-        for _ in range(20):
-            t1 = random.randint(safe_start, max(safe_start, mid - 10))
-            t2 = random.randint(mid, max(mid, safe_end - 10))
-            win_key = f"{fname}:{t1//15}:{t2//15}"
-            if win_key not in hist["used_windows"]:
-                hist["used_windows"].append(win_key)
-                break
-
-        for idx, ts in enumerate([t1, t2]):
-            subprocess.run([
-                "ffmpeg", "-y", "-ss", str(ts), "-t", "7.2",
-                "-i", url, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-an", f"cut_{idx}.mp4"
-            ], check=True)
-
-        open("concat.txt", "w").write("file 'cut_0.mp4'\nfile 'cut_1.mp4'\n")
-        subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "raw.mp4"], check=True)
-    finally:
-        srv.terminate()
+    open("concat.txt", "w").write("file 'cut_0.mp4'\nfile 'cut_1.mp4'\n")
+    subprocess.run([
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "concat.txt",
+        "-c", "copy", "raw.mp4"
+    ], check=True)
     return fname
 
 def generate_viral_package(fname, hist, focus):
