@@ -57,7 +57,7 @@ def gh_put(path, txt, sha, msg):
     return response
 
 def safe_queue_filename(raw_name):
-    name = re.sub(r"[^a-zA-Z0-9_.()\\[\\]-]", "_", os.path.basename(raw_name.strip()))
+    name = re.sub(r"[^a-zA-Z0-9_.()\[\]-]", "_", os.path.basename(raw_name.strip()))
     name = name.strip("._") or f"Gameplay_{int(time.time())}.mp4"
     if not os.path.splitext(name)[1]:
         name += ".mp4"
@@ -69,13 +69,13 @@ def queue_item(cid, source, raw_name):
         cur, sha = gh_get("links.txt")
         line = f"{source} | {safe}"
         if any(existing.strip().split("|", 1)[0].strip() == source for existing in cur.splitlines()):
-            send(cid, f"ℹ️ This Telegram message is already queued.\\n📁 {safe}", FOLDED_KB)
+            send(cid, f"ℹ️ This Telegram message is already queued.\n📁 {safe}", FOLDED_KB)
             return
-        updated = cur + ("" if not cur or cur.endswith("\\n") else "\\n") + line + "\\n"
+        updated = cur + ("" if not cur or cur.endswith("\n") else "\n") + line + "\n"
         response = gh_put("links.txt", updated, sha, f"Queue {safe}")
         if response.status_code in (200, 201):
             trigger_wf("load_links.yml")
-            send(cid, f"✅ Queued for cloud transfer!\\n📁 {safe}\\n☁️ MTProto download → one cloud with failover.", FOLDED_KB)
+            send(cid, f"✅ Queued for cloud transfer!\n📁 {safe}\n☁️ MTProto download → one cloud with failover.", FOLDED_KB)
             return
         if response.status_code not in (409, 422):
             response.raise_for_status()
@@ -84,13 +84,13 @@ def queue_item(cid, source, raw_name):
 
 def detect_game_tag(caption):
     for tag in ("GTA6", "GTA5", "GTA4", "Minecraft", "Roblox", "Valorant"):
-        if re.search(r"\\[" + re.escape(tag) + r"\\]", caption or "", re.IGNORECASE):
+        if re.search(r"\[" + re.escape(tag) + r"\]", caption or "", re.IGNORECASE):
             return tag
     return ""
 
 def tagged_filename(tag, raw_name):
     base = safe_queue_filename(raw_name)
-    if tag and not re.search(r"\\[" + re.escape(tag) + r"\\]", base, re.IGNORECASE):
+    if tag and not re.search(r"\[" + re.escape(tag) + r"\]", base, re.IGNORECASE):
         base = f"[{tag}]_{base}"
     return base
 
