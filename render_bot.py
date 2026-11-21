@@ -202,5 +202,5 @@ while True:
                 else:
                     send(cid, "No recent Short ID stored.", FOLDED_KB)
             else:
-                send(cid, "🎮 Control Panel (tap a button or ❌ Cancel to fold):", MAIN_KB)
+                send(cid, "Use /menu to open the control buttons, or /help for commands.", FOLDED_KB)
     except Exception: time.sleep(3)
