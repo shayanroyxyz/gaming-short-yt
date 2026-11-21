@@ -83,7 +83,10 @@ def download_telegram_message(source, destination):
     client = TelegramClient("telegram_ingest_bot", int(API_ID), API_HASH)
     try:
         client.start(bot_token=TOKEN)
-        message = client.get_messages(chat_id, ids=message_id)
+        # Populate Telethon's entity/access-hash cache for the private owner chat.
+        client.get_dialogs(limit=500)
+        peer = client.get_input_entity(chat_id)
+        message = client.get_messages(peer, ids=message_id)
         if not message or not message.media:
             raise RuntimeError(f"Telegram message {message_id} in chat {chat_id} has no downloadable media")
         downloaded = client.download_media(message, file=str(destination))
