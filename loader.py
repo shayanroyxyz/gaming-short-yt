@@ -20,7 +20,7 @@ API_HASH = os.environ.get("TG_API_HASH", "").strip()
 RCLONE_CONF = os.environ.get("RCLONE_CONF", "").strip()
 YT_COOKIES = os.environ.get("YT_COOKIES", "").strip()
 QUEUE = Path("links.txt")
-MAX_RETRIES = 3
+MAX_RETRIES = 3  # retries after the initial attempt
 MIN_VIDEO_BYTES = 100_000
 CLOUDS = ("mega", "pcloud")
 SESSION = requests.Session()
@@ -80,7 +80,8 @@ def download_telegram_message(source, destination):
 
     # A fresh ephemeral bot session is created on the runner; no phone storage or
     # persistent user-account session is required. MTProto supports large media.
-    with TelegramClient("telegram_ingest_bot", int(API_ID), API_HASH) as client:
+    client = TelegramClient("telegram_ingest_bot", int(API_ID), API_HASH)
+    try:
         client.start(bot_token=TOKEN)
         message = client.get_messages(chat_id, ids=message_id)
         if not message or not message.media:
@@ -88,6 +89,8 @@ def download_telegram_message(source, destination):
         downloaded = client.download_media(message, file=str(destination))
         if not downloaded:
             raise RuntimeError("Telethon did not return a downloaded media path")
+    finally:
+        client.disconnect()
 
     if not destination.is_file() or destination.stat().st_size < MIN_VIDEO_BYTES:
         raise RuntimeError("Telegram MTProto download is empty or too small")
@@ -227,9 +230,6 @@ def main():
             notify(f"⚠️ Invalid queue entry removed for manual review:\n{line[:250]}\n{exc}")
             continue
 
-        if retries >= MAX_RETRIES:
-            notify(f"⛔ Retry limit reached; dropping queue item:\n{filename}")
-            continue
 
         local_path = Path("/tmp") / f"ingest_{os.getpid()}_{filename}"
         try:
@@ -239,6 +239,31 @@ def main():
                 file_size = download_telegram_message(source, local_path)
             elif source.startswith(("https://", "http://")):
                 file_size = download_youtube(source, local_path)
+            elif source.startswith("tgfile:"):
+                # Compatibility for queue entries created by the previous bot version.
+                # Telegram hosted Bot API downloads remain limited to 20 MB.
+                file_id = source.split(":", 1)[1].strip()
+                response = SESSION.get(
+                    f"https://api.telegram.org/bot{TOKEN}/getFile",
+                    params={"file_id": file_id}, timeout=45
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if not payload.get("ok"):
+                    raise RuntimeError(f"Legacy Telegram getFile failed: {payload.get('description', 'unknown error')}")
+                file_path = payload["result"]["file_path"]
+                with SESSION.get(
+                    f"https://api.telegram.org/file/bot{TOKEN}/{file_path}",
+                    stream=True, timeout=(30, 300)
+                ) as stream:
+                    stream.raise_for_status()
+                    with open(local_path, "wb") as output:
+                        for chunk in stream.iter_content(chunk_size=1024 * 1024):
+                            if chunk:
+                                output.write(chunk)
+                file_size = local_path.stat().st_size
+                if file_size < MIN_VIDEO_BYTES:
+                    raise RuntimeError("Legacy Telegram download was empty or too small")
             else:
                 raise ValueError("Unsupported source; use tgmsg:<chat_id>:<message_id> or an HTTP(S) URL")
 
@@ -248,7 +273,7 @@ def main():
             storage_report(saved_cloud, filename, file_size, status)
         except Exception as exc:
             next_retry = retries + 1
-            if next_retry < MAX_RETRIES:
+            if next_retry <= MAX_RETRIES:
                 failed.append(f"{source} | {filename} | retries={next_retry}")
                 notify(
                     f"⚠️ Transfer failed (retry {next_retry}/{MAX_RETRIES}); retained in queue:\n"
