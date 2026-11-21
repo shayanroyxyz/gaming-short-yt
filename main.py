@@ -174,13 +174,14 @@ def stream_unique_action_clips(hist, focus):
     if dur < 15:
         raise RuntimeError(f"Selected source video is too short ({dur:.1f}s): {fname}")
 
-    safe_start = int(dur * 0.06)
-    safe_end = max(safe_start + 25, int(dur * 0.92))
-    mid = (safe_start + safe_end) // 2
+    max_start = max(0, int(dur - 7.2))
+    if max_start < 1:
+        raise RuntimeError(f"Source video is too short to make two usable cuts: {fname}")
+    mid = max_start // 2
     t1 = t2 = 0
     for _ in range(40):
-        t1 = random.randint(safe_start, max(safe_start, mid - 10))
-        t2 = random.randint(mid, max(mid, safe_end - 10))
+        t1 = random.randint(0, max(0, mid))
+        t2 = random.randint(min(max_start, mid + 1), max_start)
         win_key = f"{fname}:{t1//15}:{t2//15}"
         if win_key not in hist["used_windows"]:
             hist["used_windows"].append(win_key)
