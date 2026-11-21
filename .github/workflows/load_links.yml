@@ -17,7 +17,7 @@ concurrency:
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 180
     steps:
       - name: Checkout queue
         uses: actions/checkout@v4
@@ -37,7 +37,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests yt-dlp telethon
 
-      - name: Transfer queued videos
+      - name: Transfer queued videos with three automatic retries
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -46,7 +46,15 @@ jobs:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
           TG_API_BASE: ${{ secrets.TG_API_BASE }}
-        run: python loader.py
+        run: |
+          for attempt in 1 2 3 4; do
+            if [ ! -s links.txt ]; then
+              echo "Queue empty; no more retry passes needed."
+              break
+            fi
+            echo "Ingestion attempt $attempt of 4 (initial attempt plus 3 retries)"
+            python loader.py
+          done
 
       - name: Save retry queue without losing concurrent Telegram appends
         run: |
