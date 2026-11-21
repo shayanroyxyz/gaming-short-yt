@@ -1,42 +1,99 @@
-name: 0-Byte Cloud Video Loader
+name: Cloud Video Ingestion
+
 on:
   workflow_dispatch:
   push:
     paths:
       - "links.txt"
 
+permissions:
+  contents: write
+
+# Only one loader may consume the shared queue at a time.
+concurrency:
+  group: gta-shorts-ingestion
+  cancel-in-progress: false
+
 jobs:
-  load-videos:
+  ingest:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout queue
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install rclone, ffmpeg & dependencies
+
+      - name: Install rclone and yt-dlp
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq rclone ffmpeg curl
-          pip install -q requests yt-dlp
-      - name: Start Local Telegram Bot API (2GB File Support)
-        if: ${{ secrets.TG_API_ID != '' && secrets.TG_API_HASH != '' }}
-        run: |
-          docker run -d --name tg-api -p 8081:8081 -v /tmp/tg-api:/var/lib/telegram-bot-api \
-            -e TELEGRAM_API_ID="${{ secrets.TG_API_ID }}" \
-            -e TELEGRAM_API_HASH="${{ secrets.TG_API_HASH }}" \
-            -e TELEGRAM_LOCAL=1 \
-            aiogram/telegram-bot-api:latest
-          sleep 5
-      - name: Transfer Video to MEGA & pCloud
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          python -m pip install --upgrade pip
+          pip install requests yt-dlp telethon
+
+      - name: Transfer queued videos with three automatic retries
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
-          TG_API_BASE: ${{ secrets.TG_API_ID != '' && 'http://localhost:8081' || 'https://api.telegram.org' }}
-        run: python loader.py
-      - name: Clear processed links.txt
+          TG_API_BASE: ${{ secrets.TG_API_BASE }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add links.txt
-          git diff --staged --quiet || (git commit -m "Clear processed queue" && git push)
+          for attempt in 1 2 3 4; do
+            if [ ! -s links.txt ]; then
+              echo "Queue empty; no more retry passes needed."
+              break
+            fi
+            echo "Ingestion attempt $attempt of 4 (initial attempt plus 3 retries)"
+            python loader.py
+            if [ "$attempt" -lt 4 ] && [ -s links.txt ]; then
+              sleep $((attempt * 10))
+            fi
+          done
+
+      - name: Save retry queue without losing concurrent Telegram appends
+        run: |
+          cp links.txt /tmp/retry_queue.txt
+          git show HEAD:links.txt > /tmp/initial_queue.txt
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+            python - <<'PY'
+          from collections import Counter
+          from pathlib import Path
+          initial = [x.strip() for x in Path("/tmp/initial_queue.txt").read_text().splitlines() if x.strip()]
+          latest = [x.strip() for x in Path("links.txt").read_text().splitlines() if x.strip()]
+          retries = [x.strip() for x in Path("/tmp/retry_queue.txt").read_text().splitlines() if x.strip()]
+          remaining = Counter(initial)
+          newly_appended = []
+          for item in latest:
+              if remaining[item]:
+                  remaining[item] -= 1
+              else:
+                  newly_appended.append(item)
+          merged = retries + newly_appended
+          Path("links.txt").write_text("".join(item + "\n" for item in merged))
+          PY
+            git add links.txt
+            if git diff --cached --quiet; then
+              echo "Queue already current."
+              exit 0
+            fi
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Persist ingestion retries and preserve new queue items"
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            sleep $((attempt * 3))
+          done
+          echo "Could not persist queue after retries." >&2
+          exit 1

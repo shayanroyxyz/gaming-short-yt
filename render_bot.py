@@ -32,28 +32,67 @@ TAG_KB = {
 
 FOLDED_KB = {"remove_keyboard": True}
 
-def send(cid, text, kb=MAIN_KB):
+def send(cid, text, kb=FOLDED_KB):
     requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": cid, "text": text, "reply_markup": json.dumps(kb)}, timeout=15)
 
 def trigger_wf(wf):
     requests.post(f"https://api.github.com/repos/{REPO}/actions/workflows/{wf}/dispatches", headers=GH_HEADERS, json={"ref": "main"}, timeout=15)
 
 def gh_get(path):
-    r = requests.get(f"https://api.github.com/repos/{REPO}/contents/{path}", headers=GH_HEADERS, timeout=15).json()
-    return (base64.b64decode(r["content"]).decode() if r.get("content") else ""), r.get("sha")
+    response = requests.get(f"https://api.github.com/repos/{REPO}/contents/{path}", headers=GH_HEADERS, timeout=20)
+    if response.status_code == 404:
+        return "", None
+    response.raise_for_status()
+    payload = response.json()
+    return (base64.b64decode(payload["content"]).decode() if payload.get("content") else ""), payload.get("sha")
 
 def gh_put(path, txt, sha, msg):
-    p = {"message": msg, "content": base64.b64encode(txt.encode()).decode()}
-    if sha: p["sha"] = sha
-    requests.put(f"https://api.github.com/repos/{REPO}/contents/{path}", headers=GH_HEADERS, json=p, timeout=15)
+    payload = {"message": msg, "content": base64.b64encode(txt.encode()).decode()}
+    if sha:
+        payload["sha"] = sha
+    response = requests.put(
+        f"https://api.github.com/repos/{REPO}/contents/{path}",
+        headers=GH_HEADERS, json=payload, timeout=20
+    )
+    return response
+
+def safe_queue_filename(raw_name):
+    name = re.sub(r"[^a-zA-Z0-9_.()\[\]-]", "_", os.path.basename(raw_name.strip()))
+    name = name.strip("._") or f"Gameplay_{int(time.time())}.mp4"
+    if not os.path.splitext(name)[1]:
+        name += ".mp4"
+    return name[:180]
 
 def queue_item(cid, source, raw_name):
-    safe = re.sub(r"[^a-zA-Z0-9_\[\]-]", "_", raw_name.strip())
-    if not safe.endswith(".mp4"): safe += ".mp4"
-    cur, sha = gh_get("links.txt")
-    gh_put("links.txt", cur + f"{source} | {safe}\n", sha, f"Queue {safe}")
-    trigger_wf("load_links.yml")
-    send(cid, f"✅ Queued & Cloud Transfer Started!\n📁 File: {safe}\n☁️ Saving straight to MEGA & pCloud now (menu folded).", FOLDED_KB)
+    safe = safe_queue_filename(raw_name)
+    for attempt in range(6):
+        cur, sha = gh_get("links.txt")
+        line = f"{source} | {safe}"
+        if any(existing.strip().split("|", 1)[0].strip() == source for existing in cur.splitlines()):
+            send(cid, f"ℹ️ This Telegram message is already queued.\n📁 {safe}", FOLDED_KB)
+            return
+        updated = cur + ("" if not cur or cur.endswith("\n") else "\n") + line + "\n"
+        response = gh_put("links.txt", updated, sha, f"Queue {safe}")
+        if response.status_code in (200, 201):
+            trigger_wf("load_links.yml")
+            send(cid, f"✅ Queued for cloud transfer!\n📁 {safe}\n☁️ MTProto download → one cloud with failover.", FOLDED_KB)
+            return
+        if response.status_code not in (409, 422):
+            response.raise_for_status()
+        time.sleep(min(2 + attempt, 7))
+    raise RuntimeError("Could not append to links.txt after 6 GitHub SHA-conflict retries")
+
+def detect_game_tag(caption):
+    for tag in ("GTA6", "GTA5", "GTA4", "Minecraft", "Roblox", "Valorant"):
+        if re.search(r"\[" + re.escape(tag) + r"\]", caption or "", re.IGNORECASE):
+            return tag
+    return ""
+
+def tagged_filename(tag, raw_name):
+    base = safe_queue_filename(raw_name)
+    if tag and not re.search(r"\[" + re.escape(tag) + r"\]", base, re.IGNORECASE):
+        base = f"[{tag}]_{base}"
+    return base
 
 def get_viral_gaming_hype():
     topics = []
@@ -99,11 +138,18 @@ while True:
 
             # 1. Handle Forwarded Video from Downloader Bot OR Direct Snaptube Video Upload
             media = msg.get("video") or msg.get("document")
-            if media and media.get("file_id"):
-                fid = media["file_id"]
+            if media and (msg.get("video") or str(media.get("mime_type", "")).startswith("video/")):
                 cap = (msg.get("caption") or "").strip()
-                pending = f"tgfile:{fid}"
-                send(cid, f"🎥 Video received ({round(media.get('file_size',0)/1048576, 1)} MB)!\nTap a game tag below (or type custom name) to save to MEGA/pCloud:", TAG_KB)
+                source = f"tgmsg:{cid}:{msg.get('message_id')}"
+                raw_name = media.get("file_name") or (msg.get("video") and f"Gameplay_{msg.get('message_id')}.mp4") or f"Gameplay_{msg.get('message_id')}.mp4"
+                detected_tag = detect_game_tag(cap)
+                if detected_tag:
+                    queue_item(cid, source, tagged_filename(detected_tag, raw_name))
+                    pending = ""
+                else:
+                    pending = (source, raw_name)
+                    size_mb = round(media.get("file_size", 0) / 1048576, 1)
+                    send(cid, f"🎥 Video received ({size_mb} MB). Choose a game tag or type a filename:", TAG_KB)
                 continue
 
             text = (msg.get("text") or "").strip()
@@ -112,16 +158,22 @@ while True:
             if text in ["❌ Cancel", "/cancel"]:
                 pending = ""
                 send(cid, "✅ Folded. Tap ≡ Menu or /menu anytime.", FOLDED_KB)
-            elif text in ["/start", "/menu"]:
+            elif text == "/menu":
                 pending = ""
                 send(cid, "🎮 Owner Control Panel (auto-folds after tap):", MAIN_KB)
+            elif text == "/start":
+                pending = ""
+                send(cid, "Welcome! Type /menu to open controls.", FOLDED_KB)
             elif "youtu.be/" in text or "youtube.com/" in text:
                 parts = text.split(None, 1)
                 if len(parts) > 1 and len(parts[1].strip()) > 2: queue_item(cid, parts[0], parts[1]); pending = ""
                 else: pending = parts[0]; send(cid, "🎬 Link received! Type a file name OR tap a game tag:", TAG_KB)
             elif pending:
                 tmap = {"🎮 [GTA6]": "GTA6", "🚗 [GTA5]": "GTA5", "🗽 [GTA4]": "GTA4", "⛏️ [Minecraft]": "Minecraft", "🧱 [Roblox]": "Roblox", "🔫 [Valorant]": "Valorant"}
-                queue_item(cid, pending, f"[{tmap[text]}]_Gameplay_{int(time.time()) % 10000}.mp4" if text in tmap else text)
+                source, original_name = pending
+                chosen_tag = tmap.get(text, "")
+                final_name = tagged_filename(chosen_tag, original_name) if chosen_tag else text
+                queue_item(cid, source, final_name)
                 pending = ""
             elif text == "➕ Add Video Link": send(cid, "📎 Forward a video from @gozillabot_downloaderbot_bot, upload from Snaptube, or paste a YouTube link!", FOLDED_KB)
             elif text in ["🚀 Make Short Now", "/make"]: trigger_wf("auto_upload.yml"); send(cid, "🚀 Triggered! Publishing to YT, IG Reels & Telegram in ~60s.", FOLDED_KB)
@@ -150,5 +202,5 @@ while True:
                 else:
                     send(cid, "No recent Short ID stored.", FOLDED_KB)
             else:
-                send(cid, "🎮 Control Panel (tap a button or ❌ Cancel to fold):", MAIN_KB)
+                send(cid, "Use /menu to open the control buttons, or /help for commands.", FOLDED_KB)
     except Exception: time.sleep(3)
