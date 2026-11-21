@@ -35,12 +35,14 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq rclone
           python -m pip install --upgrade pip
-          pip install requests yt-dlp
+          pip install requests yt-dlp telethon
 
       - name: Transfer queued videos
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
           TG_API_BASE: ${{ secrets.TG_API_BASE }}
