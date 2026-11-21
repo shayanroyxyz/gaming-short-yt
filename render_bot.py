@@ -39,21 +39,50 @@ def trigger_wf(wf):
     requests.post(f"https://api.github.com/repos/{REPO}/actions/workflows/{wf}/dispatches", headers=GH_HEADERS, json={"ref": "main"}, timeout=15)
 
 def gh_get(path):
-    r = requests.get(f"https://api.github.com/repos/{REPO}/contents/{path}", headers=GH_HEADERS, timeout=15).json()
-    return (base64.b64decode(r["content"]).decode() if r.get("content") else ""), r.get("sha")
+    r = requests.get(f"https://api.github.com/repos/{REPO}/contents/{path}", headers=GH_HEADERS, timeout=15)
+    if r.status_code != 200: return "", None
+    d = r.json()
+    return (base64.b64decode(d["content"]).decode() if d.get("content") else ""), d.get("sha")
 
-def gh_put(path, txt, sha, msg):
-    p = {"message": msg, "content": base64.b64encode(txt.encode()).decode()}
-    if sha: p["sha"] = sha
-    requests.put(f"https://api.github.com/repos/{REPO}/contents/{path}", headers=GH_HEADERS, json=p, timeout=15)
+def gh_append_line(path, new_line, msg):
+    for _ in range(8):
+        cur, sha = gh_get(path)
+        updated = (cur.rstrip("\n") + "\n" if cur.strip() else "") + new_line.strip() + "\n"
+        p = {"message": msg, "content": base64.b64encode(updated.encode()).decode()}
+        if sha: p["sha"] = sha
+        res = requests.put(f"https://api.github.com/repos/{REPO}/contents/{path}", headers=GH_HEADERS, json=p, timeout=15)
+        if res.status_code in (200, 201): return True
+        time.sleep(0.8)
+    return False
+
+def gh_put(path, txt, msg):
+    for _ in range(6):
+        _, sha = gh_get(path)
+        p = {"message": msg, "content": base64.b64encode(txt.encode()).decode()}
+        if sha: p["sha"] = sha
+        res = requests.put(f"https://api.github.com/repos/{REPO}/contents/{path}", headers=GH_HEADERS, json=p, timeout=15)
+        if res.status_code in (200, 201): return True
+        time.sleep(0.8)
+    return False
 
 def queue_item(cid, source, raw_name):
     safe = re.sub(r"[^a-zA-Z0-9_\[\]-]", "_", raw_name.strip())
     if not safe.endswith(".mp4"): safe += ".mp4"
-    cur, sha = gh_get("links.txt")
-    gh_put("links.txt", cur + f"{source} | {safe}\n", sha, f"Queue {safe}")
-    trigger_wf("load_links.yml")
-    send(cid, f"✅ Queued & Cloud Transfer Started!\n📁 File: {safe}\n☁️ Saving straight to MEGA & pCloud now (menu folded).", FOLDED_KB)
+    ok = gh_append_line("links.txt", f"{source} | {safe}", f"Queue {safe}")
+    if ok:
+        send(cid, f"✅ Queued ({safe})!\n☁️ GitHub Loader is uploading to MEGA/pCloud now (menu folded).", FOLDED_KB)
+    else:
+        send(cid, f"⚠️ GitHub busy — tap the tag again for {safe}.", TAG_KB)
+
+def detect_tag(text):
+    t = text.lower()
+    if "gta 6" in t or "gta6" in t: return "GTA6"
+    if "gta 4" in t or "gta4" in t: return "GTA4"
+    if "gta" in t: return "GTA5"
+    if "minecraft" in t: return "Minecraft"
+    if "roblox" in t: return "Roblox"
+    if "valorant" in t: return "Valorant"
+    return None
 
 def get_viral_gaming_hype():
     topics = []
@@ -67,7 +96,6 @@ def get_viral_gaming_hype():
 port = int(os.environ.get("PORT", 10000))
 threading.Thread(target=lambda: HTTPServer(("0.0.0.0", port), type("H", (BaseHTTPRequestHandler,), {"do_GET": lambda s: (s.send_response(200), s.end_headers(), s.wfile.write(b"OK"))})).serve_forever(), daemon=True).start()
 
-# Register native Menu button commands so menu starts folded by default
 requests.post(f"https://api.telegram.org/bot{TOKEN}/setMyCommands", json={"commands": [
     {"command": "menu", "description": "Open Control Buttons"},
     {"command": "make", "description": "Make & Publish Short Now"},
@@ -95,15 +123,21 @@ while True:
 
             msg = u.get("message") or {}
             cid = str((msg.get("chat") or {}).get("id", ""))
+            mid = msg.get("message_id")
             if cid != CHAT_ID: continue
 
-            # 1. Handle Forwarded Video from Downloader Bot OR Direct Snaptube Video Upload
             media = msg.get("video") or msg.get("document")
             if media and media.get("file_id"):
-                fid = media["file_id"]
+                sz = round(media.get("file_size", 0) / 1048576, 1)
                 cap = (msg.get("caption") or "").strip()
-                pending = f"tgfile:{fid}"
-                send(cid, f"🎥 Video received ({round(media.get('file_size',0)/1048576, 1)} MB)!\nTap a game tag below (or type custom name) to save to MEGA/pCloud:", TAG_KB)
+                src = f"tgmsg:{cid}:{mid}"
+                auto_tag = detect_tag(cap)
+                if auto_tag:
+                    queue_item(cid, src, f"[{auto_tag}]_Clip_{mid}.mp4")
+                    pending = ""
+                else:
+                    pending = src
+                    send(cid, f"🎥 Video received ({sz} MB)!\nTap a game tag below (or type a custom name):", TAG_KB)
                 continue
 
             text = (msg.get("text") or "").strip()
@@ -121,16 +155,16 @@ while True:
                 else: pending = parts[0]; send(cid, "🎬 Link received! Type a file name OR tap a game tag:", TAG_KB)
             elif pending:
                 tmap = {"🎮 [GTA6]": "GTA6", "🚗 [GTA5]": "GTA5", "🗽 [GTA4]": "GTA4", "⛏️ [Minecraft]": "Minecraft", "🧱 [Roblox]": "Roblox", "🔫 [Valorant]": "Valorant"}
-                queue_item(cid, pending, f"[{tmap[text]}]_Gameplay_{int(time.time()) % 10000}.mp4" if text in tmap else text)
+                queue_item(cid, pending, f"[{tmap[text]}]_Clip_{int(time.time()) % 10000}.mp4" if text in tmap else text)
                 pending = ""
             elif text == "➕ Add Video Link": send(cid, "📎 Forward a video from @gozillabot_downloaderbot_bot, upload from Snaptube, or paste a YouTube link!", FOLDED_KB)
             elif text in ["🚀 Make Short Now", "/make"]: trigger_wf("auto_upload.yml"); send(cid, "🚀 Triggered! Publishing to YT, IG Reels & Telegram in ~60s.", FOLDED_KB)
             elif text in ["🎯 Focus: GTA 6", "🎯 Focus: Auto"]:
                 val = "gta6" if "GTA 6" in text else "auto"
-                cur, sha = gh_get("config.json")
+                cur, _ = gh_get("config.json")
                 cfg = json.loads(cur) if cur else {"focus": "auto", "last_video_id": ""}
                 cfg["focus"] = val
-                gh_put("config.json", json.dumps(cfg, indent=2), sha, f"Focus {val}")
+                gh_put("config.json", json.dumps(cfg, indent=2), f"Focus {val}")
                 send(cid, f"🎯 Focus switched to: {val.upper()}", FOLDED_KB)
             elif text in ["🔥 Live Hype", "/hype"]: send(cid, "🔥 Live Viral Gaming Search Trends:\n• " + get_viral_gaming_hype(), FOLDED_KB)
             elif text in ["📊 Cloud Status", "/status"]:
@@ -140,12 +174,12 @@ while True:
                 c, _ = gh_get("config.json"); vid = json.loads(c).get("last_video_id", "") if c else ""
                 send(cid, f"📈 Latest Short: https://youtube.com/shorts/{vid}" if vid else "📈 No Short yet — tap /make!", FOLDED_KB)
             elif text in ["🗑️ Delete Last", "/delete_last"]:
-                c, sha = gh_get("config.json")
+                c, _ = gh_get("config.json")
                 cfg = json.loads(c) if c else {}
                 vid = cfg.get("last_video_id", "")
                 if vid:
                     cfg["last_video_id"] = ""
-                    gh_put("config.json", json.dumps(cfg, indent=2), sha, "Clear last_video_id")
+                    gh_put("config.json", json.dumps(cfg, indent=2), "Clear last_video_id")
                     send(cid, f"🗑️ Cleared Short ID {vid} from queue.", FOLDED_KB)
                 else:
                     send(cid, "No recent Short ID stored.", FOLDED_KB)

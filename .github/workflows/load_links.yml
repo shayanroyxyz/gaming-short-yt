@@ -5,6 +5,10 @@ on:
     paths:
       - "links.txt"
 
+concurrency:
+  group: cloud-video-loader
+  cancel-in-progress: false
+
 jobs:
   load-videos:
     runs-on: ubuntu-latest
@@ -13,30 +17,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install rclone, ffmpeg & dependencies
+      - name: Install rclone, ffmpeg & Telethon
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq rclone ffmpeg curl
-          pip install -q requests yt-dlp
-      - name: Start Local Telegram Bot API (2GB File Support)
-        if: ${{ secrets.TG_API_ID != '' && secrets.TG_API_HASH != '' }}
-        run: |
-          docker run -d --name tg-api -p 8081:8081 -v /tmp/tg-api:/var/lib/telegram-bot-api \
-            -e TELEGRAM_API_ID="${{ secrets.TG_API_ID }}" \
-            -e TELEGRAM_API_HASH="${{ secrets.TG_API_HASH }}" \
-            -e TELEGRAM_LOCAL=1 \
-            aiogram/telegram-bot-api:latest
-          sleep 5
+          pip install -q requests telethon cryptg yt-dlp
       - name: Transfer Video to MEGA & pCloud
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
-          TG_API_BASE: ${{ secrets.TG_API_ID != '' && 'http://localhost:8081' || 'https://api.telegram.org' }}
         run: python loader.py
-      - name: Clear processed links.txt
+      - name: Update links.txt safely
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase --autostash origin main || true
           git add links.txt
           git diff --staged --quiet || (git commit -m "Clear processed queue" && git push)
