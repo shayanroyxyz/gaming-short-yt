@@ -1,42 +1,64 @@
-name: 0-Byte Cloud Video Loader
+name: Cloud Video Ingestion
+
 on:
   workflow_dispatch:
   push:
     paths:
       - "links.txt"
 
+permissions:
+  contents: write
+
+# Only one loader may consume the shared queue at a time.
+concurrency:
+  group: gta-shorts-ingestion
+  cancel-in-progress: false
+
 jobs:
-  load-videos:
+  ingest:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout queue
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install rclone, ffmpeg & dependencies
+
+      - name: Install rclone and yt-dlp
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq rclone ffmpeg curl
-          pip install -q requests yt-dlp
-      - name: Start Local Telegram Bot API (2GB File Support)
-        if: ${{ secrets.TG_API_ID != '' && secrets.TG_API_HASH != '' }}
-        run: |
-          docker run -d --name tg-api -p 8081:8081 -v /tmp/tg-api:/var/lib/telegram-bot-api \
-            -e TELEGRAM_API_ID="${{ secrets.TG_API_ID }}" \
-            -e TELEGRAM_API_HASH="${{ secrets.TG_API_HASH }}" \
-            -e TELEGRAM_LOCAL=1 \
-            aiogram/telegram-bot-api:latest
-          sleep 5
-      - name: Transfer Video to MEGA & pCloud
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          python -m pip install --upgrade pip
+          pip install requests yt-dlp
+
+      - name: Transfer queued videos
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
-          TG_API_BASE: ${{ secrets.TG_API_ID != '' && 'http://localhost:8081' || 'https://api.telegram.org' }}
+          TG_API_BASE: ${{ secrets.TG_API_BASE }}
         run: python loader.py
-      - name: Clear processed links.txt
+
+      - name: Save remaining retry queue
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add links.txt
-          git diff --staged --quiet || (git commit -m "Clear processed queue" && git push)
+          if git diff --cached --quiet; then
+            echo "Queue unchanged."
+            exit 0
+          fi
+          git commit -m "Retain only unprocessed ingestion queue items"
+          for attempt in 1 2 3; do
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
+            sleep $((attempt * 3))
+          done
+          echo "Could not persist queue after retries." >&2
+          exit 1
