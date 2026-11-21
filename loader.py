@@ -131,8 +131,32 @@ def transfer_to_both_clouds(local_path, filename):
             detail = (result.stderr or "rclone failed").strip()[-500:]
             failures.append(f"{target}: {detail}")
             continue
-        if not remote_file_exists(target):
-            failures.append(f"{target}: destination could not be verified")
+
+        # Existence alone is not enough: verify bytes/checksum. If a previous
+        # interrupted transfer left a partial object, overwrite it and recheck.
+        check = run(
+            ["rclone", "check", str(local_path), target, "--one-way"],
+            check=False,
+            capture=True,
+        )
+        if check.returncode != 0:
+            repair = run(
+                ["rclone", "copyto", str(local_path), target],
+                check=False,
+                capture=True,
+            )
+            if repair.returncode != 0:
+                detail = (repair.stderr or "rclone repair failed").strip()[-500:]
+                failures.append(f"{target}: {detail}")
+                continue
+            check = run(
+                ["rclone", "check", str(local_path), target, "--one-way"],
+                check=False,
+                capture=True,
+            )
+        if check.returncode != 0:
+            detail = (check.stderr or "rclone verification failed").strip()[-500:]
+            failures.append(f"{target}: {detail}")
     if failures:
         raise RuntimeError("; ".join(failures))
 
