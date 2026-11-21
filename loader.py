@@ -188,7 +188,10 @@ def storage_report(saved_cloud, filename, file_size, status):
     counts, spaces = {}, {}
     for remote in CLOUDS:
         try:
-            counts[remote] = len(cloud_listing(remote))
+            counts[remote] = sum(
+                1 for name in cloud_listing(remote)
+                if name.lower().endswith((".mp4", ".mkv", ".webm", ".mov"))
+            )
         except Exception:
             counts[remote] = "unavailable"
         spaces[remote] = cloud_space(remote)
