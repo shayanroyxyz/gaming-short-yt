@@ -148,7 +148,7 @@ if YT_COOKIES:
 processed = set()
 # Bound each workflow run so a slow source cannot consume the entire scheduled window.
 # Failed entries are rotated behind untouched entries at the end of the run.
-MAX_ITEMS_PER_RUN = 2
+MAX_ITEMS_PER_RUN = 1
 batch = lines[:MAX_ITEMS_PER_RUN]
 for line in batch:
     
@@ -251,8 +251,18 @@ for line in batch:
     else:
         notify(f"⚠️ Failed to transfer {safe_name}:\nReason: {err_detail}")
 
-# Remove only processed lines so new lines queued mid-run are preserved
+# Remove successful entries, preserve newly queued entries, and rotate failed
+# attempted entries behind untouched work so one bad link cannot block the queue.
 if os.path.exists("links.txt"):
     latest = [l.strip() for l in open("links.txt") if l.strip()]
     remaining = [l for l in latest if l not in processed]
-    open("links.txt", "w").write(("\n".join(remaining) + "\n") if remaining else "")
+    attempted = set(batch)
+    deferred = [line for line in batch if line in remaining]
+    untouched = [line for line in remaining if line not in attempted]
+    ordered = untouched + deferred
+    open("links.txt", "w").write(("\n".join(ordered) + "\n") if ordered else "")
+    if deferred:
+        notify(
+            f"⏭️ Deferred {len(deferred)} item(s) that failed this run. "
+            f"They remain queued behind {len(untouched)} untouched item(s); nothing was deleted."
+        )
