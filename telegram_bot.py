@@ -6,7 +6,7 @@ TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = str(os.environ.get("TELEGRAM_CHAT_ID", "")).strip()
 CHANNEL_ID = str(os.environ.get("TELEGRAM_CHANNEL_ID", "")).strip()
 GH_PAT = os.environ.get("GH_PAT", "").strip()
-REPO = os.environ.get("GITHUB_REPOSITORY", "shayanroyxyz/gta-shorts-agent")
+REPO = os.environ.get("GITHUB_REPOSITORY", "shayanroyxyz/gaming-short-yt")
 
 MAIN_KEYBOARD = {
     "keyboard": [

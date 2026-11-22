@@ -4,7 +4,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"].strip()
 CHAT_ID = str(os.environ["TELEGRAM_CHAT_ID"]).strip()
 GH_PAT = os.environ["GH_PAT"].strip()
-REPO = "shayanroyxyz/gta-shorts-agent"
+REPO = "shayanroyxyz/gaming-short-yt"
 GH_HEADERS = {"Authorization": f"Bearer {GH_PAT}", "Accept": "application/vnd.github+json"}
 
 MAIN_KB = {
