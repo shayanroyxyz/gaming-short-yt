@@ -1,4 +1,5 @@
 import os, re, json, asyncio, random, subprocess, requests
+from collections import Counter
 from telethon import TelegramClient
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
@@ -56,9 +57,8 @@ open(os.path.expanduser("~/.config/rclone/rclone.conf"), "w").write(RCLONE_CONF)
 if YT_COOKIES:
     open("/tmp/cookies.txt", "w").write(YT_COOKIES)
 
-processed = set()
+successfully_uploaded = []
 for line in lines:
-    processed.add(line)
     src, fname = [x.strip() for x in line.split("|", 1)]
     safe_name = re.sub(r"[^a-zA-Z0-9_\[\]-]", "_", fname)
     if not safe_name.endswith(".mp4"):
@@ -116,6 +116,7 @@ for line in lines:
         tot_free = round(m_free + p_free, 2)
         tot_cap = round(m_tot + p_tot, 2)
 
+        successfully_uploaded.append(line)
         notify(
             f"✅ Unique Upload Complete!\n"
             f"📁 File: {safe_name} ({fsize_mb} MB)\n"
