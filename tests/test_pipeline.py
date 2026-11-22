@@ -34,11 +34,14 @@ class PipelineRegressionTests(unittest.TestCase):
                 with patch.object(main.subprocess, "check_output", side_effect=fake_check_output), \
                      patch.object(main.subprocess, "run", side_effect=fake_run):
                     history = {"used_windows": [], "used_topics": []}
-                    fname, local_path = main.stream_unique_action_clips(history, "gta6")
+                    fname, local_path, source_hash, start_second, source_duration = main.stream_unique_action_clips(history, "gta6")
 
                 self.assertEqual(fname, "[GTA6]_Clip_42.mp4")
                 self.assertEqual(local_path, old_clip)
                 self.assertTrue(os.path.isfile(local_path))
+                self.assertEqual(len(source_hash), 64)
+                self.assertEqual(start_second, 0.0)
+                self.assertEqual(source_duration, 42.0)
                 self.assertIn("mega:[GTA6]_Clip_42.mp4", history["used_sources"])
 
         if os.path.exists(old_clip):
@@ -74,6 +77,19 @@ class PipelineRegressionTests(unittest.TestCase):
 
             self.assertEqual(result, output)
             self.assertTrue(os.path.isfile(output))
+
+    def test_caption_chunks_use_word_boundaries_and_pop_style(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "captions.ass")
+            script = "One two three four five six seven eight"
+            boundaries = [{"text": word, "start": i * 0.3, "duration": 0.2}
+                           for i, word in enumerate(script.split())]
+            render_engine.build_clean_ass_captions(script, 3.0, path, boundaries)
+            content = open(path, encoding="utf-8").read()
+            self.assertIn("MarginV,1", content)
+            self.assertIn("80,\\\\fscx100", content)
+            self.assertIn("\\\\N", content)
+            self.assertIn("Dialogue: 0,0:00:00.00,0:00:00.00", content)
 
 
 if __name__ == "__main__":
