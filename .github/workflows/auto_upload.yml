@@ -34,6 +34,12 @@ jobs:
           rclone version
           rclone help backends | grep -i mega
       - run: pip install -q -r requirements.txt
+      - name: Verify GitHub write access before publishing
+        run: |
+          if ! git push --dry-run origin HEAD:main; then
+            echo "::error::GitHub rejected write access. Configure GH_PAT as a repository secret with Contents: Read and write before enabling publishing."
+            exit 1
+          fi
       - name: Drain pending Telegram and URL queue before rendering
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
