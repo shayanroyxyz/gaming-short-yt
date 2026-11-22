@@ -1,3 +1,78 @@
+
+def generate_viral_script_waterfall(prompt_text):
+    import os, requests
+    # Tier 1: Groq (Fastest, 1000/day free)
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    if groq_key:
+        try:
+            r = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt_text}], "temperature": 0.85},
+                timeout=25
+            )
+            if r.status_code == 200:
+                txt = r.json()["choices"][0]["message"]["content"].strip()
+                if txt:
+                    print("AI Brain Active: Groq llama-3.3-70b")
+                    return txt
+        except Exception as e:
+            print(f"Groq fallback: {e}")
+
+    # Tier 2: OpenRouter (Free models)
+    or_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if or_key:
+        for or_model in ["qwen/qwen-2.5-72b-instruct:free", "deepseek/deepseek-chat:free", "meta-llama/llama-3.3-70b-instruct:free"]:
+            try:
+                r = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {or_key}", "Content-Type": "application/json"},
+                    json={"model": or_model, "messages": [{"role": "user", "content": prompt_text}]},
+                    timeout=30
+                )
+                if r.status_code == 200:
+                    txt = r.json()["choices"][0]["message"]["content"].strip()
+                    if txt:
+                        print(f"AI Brain Active: OpenRouter {or_model}")
+                        return txt
+            except Exception as e:
+                print(f"OpenRouter {or_model} fallback: {e}")
+
+    # Tier 3: Gemini (Multi-model auto-fallback)
+    gem_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if gem_key:
+        for g_model in ["gemini-3.8-flash", "gemini-3-flash-preview", "gemini-2.5-flash-lite", "gemini-2.0-flash"]:
+            try:
+                r = requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={gem_key}",
+                    headers={"Content-Type": "application/json"},
+                    json={"contents": [{"parts": [{"text": prompt_text}]}]},
+                    timeout=25
+                )
+                if r.status_code == 200:
+                    txt = r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    if txt:
+                        print(f"AI Brain Active: Gemini {g_model}")
+                        return txt
+            except Exception as e:
+                print(f"Gemini {g_model} fallback: {e}")
+    return None
+
+class _SafeModelsProxy:
+    def __init__(self, real_models):
+        self._real = real_models
+    def generate_content(self, *args, **kwargs):
+        prompt_text = kwargs.get("contents") or (args[1] if len(args) > 1 else "")
+        if isinstance(prompt_text, str) and prompt_text.strip():
+            out = generate_viral_script_waterfall(prompt_text)
+            if out:
+                return type("Resp", (), {"text": out})()
+        return self._real.generate_content(*args, **kwargs)
+
+class _SafeClientProxy:
+    def __init__(self, real_client):
+        self.models = _SafeModelsProxy(real_client.models)
+
 import os, re, json, time, random, asyncio, textwrap, subprocess, urllib.parse, xml.etree.ElementTree as ET, requests, edge_tts
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -124,8 +199,8 @@ def ask_ai_brain(prompt):
 
     gem_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if gem_key:
-        client = genai.Client(api_key=gem_key)
-        return client.models.generate_content(model="gemini-2.5-flash", contents=prompt).text
+        client = _SafeClientProxy(genai.Client(api_key=gem_key))
+        return client.models.generate_content(model="gemini-3.8-flash", contents=prompt).text
     raise RuntimeError("No AI API key succeeded.")
 
 def stream_unique_action_clips(hist, focus):
