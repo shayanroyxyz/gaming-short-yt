@@ -58,7 +58,7 @@ if YT_COOKIES:
 
 processed = set()
 for line in lines:
-    processed.add(line)
+    
     src, fname = [x.strip() for x in line.split("|", 1)]
     safe_name = re.sub(r"[^a-zA-Z0-9_\[\]-]", "_", fname)
     if not safe_name.endswith(".mp4"):
@@ -109,6 +109,7 @@ for line in lines:
                 os.remove(local_file)
                 continue
 
+        processed.add(line)
         os.remove(local_file)
         m_used, m_free, m_tot = get_cloud_stats("mega")
         p_used, p_free, p_tot = get_cloud_stats("pcloud")
