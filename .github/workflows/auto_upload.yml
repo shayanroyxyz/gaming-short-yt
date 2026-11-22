@@ -1,12 +1,20 @@
 name: 24/7 US Viral Gaming Shorts + IG Reels (6x Daily)
 on:
+  # Six daily runs at 9 AM, 12 PM, 3 PM, 6 PM, 9 PM and 12 AM
+  # US Eastern time. IANA timezone keeps these local times aligned across DST.
   schedule:
-    - cron: '17 3 * * *'
-    - cron: '17 7 * * *'
+    - cron: '17 9 * * *'
+      timezone: "America/New_York"
     - cron: '17 12 * * *'
-    - cron: '17 16 * * *'
-    - cron: '17 19 * * *'
-    - cron: '17 22 * * *'
+      timezone: "America/New_York"
+    - cron: '17 15 * * *'
+      timezone: "America/New_York"
+    - cron: '17 18 * * *'
+      timezone: "America/New_York"
+    - cron: '17 21 * * *'
+      timezone: "America/New_York"
+    - cron: '17 0 * * *'
+      timezone: "America/New_York"
   workflow_dispatch:
 permissions:
   contents: write
@@ -18,7 +26,7 @@ jobs:
   run-bot:
     if: github.repository == 'shayanroyxyz/gta-shorts-agent'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:

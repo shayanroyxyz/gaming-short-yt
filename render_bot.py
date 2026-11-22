@@ -202,8 +202,9 @@ while True:
                 send(cid, f"🎯 Focus switched to: {val.upper()}", FOLDED_KB)
             elif text in ["🔥 Live Hype", "/hype"]: send(cid, "🔥 Live Viral Gaming Search Trends:\n• " + get_viral_gaming_hype(), FOLDED_KB)
             elif text in ["📊 Cloud Status", "/status"]:
-                h, _ = gh_get("history.json"); c, _ = gh_get("config.json")
-                send(cid, f"📊 Pipeline Status:\n• Unique Shorts Made: {len(json.loads(h).get('used_windows', [])) if h else 0}\n• Focus: {(json.loads(c).get('focus', 'auto') if c else 'auto').upper()}\n• Schedule: 6x Daily (US Prime Time)", FOLDED_KB)
+                h, _ = gh_get("history.json"); c, _ = gh_get("config.json"); q, _ = gh_get("links.txt")
+                queued = len([line for line in (q or "").splitlines() if "|" in line])
+                send(cid, f"📊 Pipeline Status:\n• Unique Shorts Made: {len(json.loads(h).get('used_windows', [])) if h else 0}\n• Videos waiting in queue: {queued}\n• Focus: {(json.loads(c).get('focus', 'auto') if c else 'auto').upper()}\n• Auto schedule: unchanged (6x daily)", FOLDED_KB)
             elif text in ["📈 YT Stats", "/stats"]:
                 c, _ = gh_get("config.json"); vid = json.loads(c).get("last_video_id", "") if c else ""
                 send(cid, f"📈 Latest Short: https://youtube.com/shorts/{vid}" if vid else "📈 No Short yet — tap /make!", FOLDED_KB)

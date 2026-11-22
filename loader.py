@@ -7,6 +7,7 @@ API_ID = int(str(os.environ.get("TG_API_ID", "0")).strip() or 0)
 API_HASH = os.environ.get("TG_API_HASH", "").strip()
 RCLONE_CONF = os.environ.get("RCLONE_CONF", "").strip()
 YT_COOKIES = os.environ.get("YT_COOKIES", "").strip()
+EXPECTED_CAPACITY_GB = {"mega": 20.0, "pcloud": 10.0}  # User-reported free-plan targets; actual quota is still checked separately.
 
 def notify(msg):
     if TOKEN and CHAT_ID:
@@ -20,28 +21,44 @@ def notify(msg):
             print(f"Telegram notification skipped: {type(exc).__name__}: {exc}")
 
 def get_cloud_stats(remote):
-    import time
-    time.sleep(2)
+    """Return real provider quota in decimal GB, or None when it cannot be verified."""
     try:
+        import time
+        # MEGA may temporarily rate-limit rapid API calls; pCloud does not need this delay.
+        if remote == "mega":
+            time.sleep(3)
         res = subprocess.run(
             ["rclone", "about", f"{remote}:", "--json"],
-            capture_output=True, text=True, timeout=60
+            capture_output=True, text=True, timeout=35
         )
         if res.returncode != 0:
             detail = (res.stderr or res.stdout or "unknown rclone error").strip()
-            print(f"[{remote}] rclone about failed (exit {res.returncode}): {detail[-500:]}")
-            return 0.0, 0.0, 0.0
-        d = json.loads(res.stdout)
-        total = d.get("total", 0) / (1024**3)
-        used = d.get("used", 0) / (1024**3)
-        free = d.get("free", max(0, d.get("total", 0) - d.get("used", 0))) / (1024**3)
-        return round(used, 2), round(free, 2), round(total, 2)
+            print(f"[{remote}] quota lookup failed (exit {res.returncode}): {detail[-500:]}")
+            return None
+        data = json.loads(res.stdout or "{}")
+        total_bytes, used_bytes = data.get("total"), data.get("used")
+        free_bytes = data.get("free")
+        if total_bytes is None or used_bytes is None:
+            print(f"[{remote}] quota response omitted total/used; refusing to display a fake 0 GB quota.")
+            return None
+        if free_bytes is None:
+            free_bytes = max(0, int(total_bytes) - int(used_bytes))
+        if int(total_bytes) <= 0 or int(free_bytes) < 0:
+            print(f"[{remote}] quota response invalid: {data}")
+            return None
+        gb = 1_000_000_000
+        return (round(int(used_bytes) / gb, 2),
+                round(int(free_bytes) / gb, 2),
+                round(int(total_bytes) / gb, 2))
     except Exception as exc:
-        print(f"[{remote}] rclone about exception: {type(exc).__name__}: {exc}")
-        return 0.0, 0.0, 0.0
+        print(f"[{remote}] quota lookup exception: {type(exc).__name__}: {exc}")
+        return None
 
 def count_clips(remote):
     try:
+        import time
+        if remote == "mega":
+            time.sleep(3)
         out = subprocess.check_output(["rclone", "lsf", f"{remote}:GTA_Clips"], text=True, timeout=20)
         return len([x for x in out.splitlines() if x.strip().endswith(".mp4")])
     except Exception:
@@ -50,6 +67,9 @@ def count_clips(remote):
 def remote_ready(remote):
     """Return True only when rclone can authenticate to the configured remote."""
     try:
+        import time
+        if remote == "mega":
+            time.sleep(3)
         result = subprocess.run(
             ["rclone", "lsd", f"{remote}:"],
             capture_output=True, text=True, timeout=45
@@ -66,6 +86,9 @@ def remote_ready(remote):
 
 def verify_uploaded_file(remote, filename, expected_size):
     try:
+        import time
+        if remote == "mega":
+            time.sleep(3)
         raw = subprocess.check_output(
             ["rclone", "lsjson", f"{remote}:GTA_Clips"],
             text=True, stderr=subprocess.PIPE, timeout=60
@@ -77,14 +100,23 @@ def verify_uploaded_file(remote, filename, expected_size):
         print(f"[{remote}] upload verification failed: {type(exc).__name__}: {exc}")
     return False
 
-async def download_tg_msg(cid, mid, out_path):
+async def download_tg_msg(cid, mid, out_path, label="video"):
     client = TelegramClient("/tmp/bot_mtproto", API_ID, API_HASH)
     await client.start(bot_token=TOKEN)
     try:
         msg = await client.get_messages(cid, ids=mid)
         if not msg or not msg.media:
             return False, "Message or video not found in chat"
-        await client.download_media(msg, file=out_path)
+        last_report = [-1]
+        def progress(current, total):
+            if not total:
+                return
+            pct = int(current * 100 / total)
+            bucket = min(100, (pct // 20) * 20)
+            if bucket > last_report[0] or pct >= 100:
+                last_report[0] = bucket
+                notify(f"⬇️ Downloading {label}: {pct}% ({current // 1048576}/{total // 1048576} MB)")
+        await client.download_media(msg, file=out_path, progress_callback=progress)
         if os.path.exists(out_path) and os.path.getsize(out_path) > 100000:
             return True, ""
         return False, "Downloaded file empty"
@@ -99,12 +131,26 @@ if not lines:
     exit(0)
 
 os.makedirs(os.path.expanduser("~/.config/rclone"), exist_ok=True)
+if not RCLONE_CONF:
+    notify("❌ RCLONE_CONF is missing in GitHub Actions secrets. Cloud transfer cannot start.")
+    raise SystemExit("RCLONE_CONF secret is empty")
 open(os.path.expanduser("~/.config/rclone/rclone.conf"), "w").write(RCLONE_CONF)
+listed = subprocess.run(["rclone", "listremotes"], capture_output=True, text=True, timeout=20)
+remote_names = {name.strip().rstrip(":").lower() for name in listed.stdout.splitlines()}
+print("[storage] Configured rclone remote names:", ", ".join(sorted(remote_names)) or "(none)")
+missing_remotes = {"mega", "pcloud"} - remote_names
+if missing_remotes:
+    notify("❌ RCLONE_CONF is missing remote section(s): " + ", ".join(sorted(missing_remotes)) + ". Expected [mega] and [pcloud].")
+    raise SystemExit("Required rclone remote sections missing: " + ", ".join(sorted(missing_remotes)))
 if YT_COOKIES:
     open("/tmp/cookies.txt", "w").write(YT_COOKIES)
 
 processed = set()
-for line in lines:
+# Bound each workflow run so a slow source cannot consume the entire scheduled window.
+# Failed entries are rotated behind untouched entries at the end of the run.
+MAX_ITEMS_PER_RUN = 1
+batch = lines[:MAX_ITEMS_PER_RUN]
+for line in batch:
     
     src, fname = [x.strip() for x in line.split("|", 1)]
     stem, ext = os.path.splitext(fname)
@@ -117,47 +163,53 @@ for line in lines:
 
     ok = False
     err_detail = ""
+    print(f"[queue] Processing {safe_name} from {src.split(':', 1)[0]}")
     if src.startswith("tgmsg:"):
         if not API_ID or not API_HASH:
             err_detail = "TG_API_ID or TG_API_HASH secret missing in GitHub"
         else:
             try:
                 _, c_str, m_str = src.split(":")
-                ok, err_detail = asyncio.run(download_tg_msg(int(c_str), int(m_str), local_file))
+                notify(f"⬇️ Starting Telegram download: {safe_name}")
+                ok, err_detail = asyncio.run(asyncio.wait_for(
+                    download_tg_msg(int(c_str), int(m_str), local_file, safe_name), timeout=660
+                ))
             except Exception as e:
                 err_detail = str(e)
     elif src.startswith("http"):
-        subprocess.run(["pip", "install", "-q", "-U", "yt-dlp"], check=False)
-        cmd = ["yt-dlp", "-f", "best[height<=720][ext=mp4]/best[height<=720]", "--no-playlist", "-o", local_file, src]
+        # yt-dlp is installed once by the workflow, not for every queued item.
+        cmd = ["yt-dlp", "--no-warnings", "--retries", "3", "--fragment-retries", "3",
+               "--concurrent-fragments", "4", "-f", "best[height<=720][ext=mp4]/best[height<=720]",
+               "--no-playlist", "-o", local_file, src]
         if YT_COOKIES:
             cmd[1:1] = ["--cookies", "/tmp/cookies.txt"]
-        res = subprocess.run(cmd, capture_output=True, text=True)
-        ok = os.path.exists(local_file) and os.path.getsize(local_file) > 500000
-        if not ok:
-            err_detail = (res.stderr or "YouTube IP blocked")[-140:].strip()
+        try:
+            notify(f"⬇️ Starting source download: {safe_name}")
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=660)
+            ok = os.path.exists(local_file) and os.path.getsize(local_file) > 500000
+            if not ok:
+                err_detail = (res.stderr or "Download did not produce a usable video")[-180:].strip()
+        except subprocess.TimeoutExpired:
+            err_detail = "Source download exceeded the 11-minute safety limit; item remains queued for retry."
 
     if ok:
         fsize_mb = round(os.path.getsize(local_file) / (1024**2), 1)
-        remote_state = {}
-        for remote in ("mega", "pcloud"):
-            if remote_ready(remote):
-                used, free, total = get_cloud_stats(remote)
-                remote_state[remote] = (used, free, total)
-
-        candidates = [
-            remote for remote, (_, free, total) in remote_state.items()
-            if free > 0.5 or total == 0
-        ]
+        # Quota reporting is optional: some accounts/backends may not expose it.
+        # Never block a valid upload merely because rclone about returned no quota.
+        candidates = [remote for remote in ("mega", "pcloud") if remote_ready(remote)]
         if not candidates:
-            notify(f"❌ No usable MEGA/pCloud destination for {safe_name}. Source retained in queue for retry.")
+            notify(f"❌ Neither MEGA nor pCloud authenticated for {safe_name}. The item remains queued.")
             continue
 
         target = random.choice(candidates)
         upload_result = None
         for destination in [target] + [r for r in candidates if r != target]:
+            print(f"[storage] Uploading {safe_name} to {destination}; source size {fsize_mb} MB.")
+            notify(f"☁️ Uploading {safe_name} to {destination.upper()} ({fsize_mb} MB).")
             attempt = subprocess.run(
-                ["rclone", "copyto", local_file, f"{destination}:GTA_Clips/{safe_name}"],
-                capture_output=True, text=True, timeout=600
+                ["rclone", "copyto", local_file, f"{destination}:GTA_Clips/{safe_name}",
+                 "--retries", "2", "--low-level-retries", "3", "--stats", "15s"],
+                capture_output=True, text=True, timeout=420
             )
             if attempt.returncode == 0 and verify_uploaded_file(
                 destination, safe_name, os.path.getsize(local_file)
@@ -174,26 +226,43 @@ for line in lines:
 
         processed.add(line)
         os.remove(local_file)
-        m_used, m_free, m_tot = get_cloud_stats("mega")
-        p_used, p_free, p_tot = get_cloud_stats("pcloud")
+        notify(f"🔎 Upload finished; verifying {safe_name} and checking available quota.")
+        m_stats = get_cloud_stats("mega")
+        p_stats = get_cloud_stats("pcloud")
         m_cnt, p_cnt = count_clips("mega"), count_clips("pcloud")
-        tot_free = round(m_free + p_free, 2)
-        tot_cap = round(m_tot + p_tot, 2)
-
+        def quota_line(name, stats, count):
+            if stats is None:
+                expected = EXPECTED_CAPACITY_GB.get(name.lower())
+                plan = f"{expected:.0f} GB expected plan capacity (not verified)" if expected else "plan capacity unknown"
+                return f"• {name} ({count} visible clips): {plan}; actual used/free quota unavailable"
+            used, free, total = stats
+            return f"• {name} ({count} visible clips): {used} GB used | {free} GB free (of {total} GB)"
+        known = [x for x in (m_stats, p_stats) if x is not None]
+        combined = (f"\n🔋 Combined known free: {sum(x[1] for x in known):.2f} GB / {sum(x[2] for x in known):.2f} GB"
+                    if known else "\n🔋 Combined quota unavailable; no made-up totals shown.")
         notify(
-            f"✅ Unique Upload Complete!\n"
+            f"✅ Upload verified!\n"
             f"📁 File: {safe_name} ({fsize_mb} MB)\n"
-            f"☁️ Saved Exclusively To: {target.upper()}\n\n"
-            f"📊 Cloud Storage & Video Pool:\n"
-            f"• MEGA ({m_cnt} videos): {m_used} GB used | {m_free} GB left (of {m_tot} GB)\n"
-            f"• pCloud ({p_cnt} videos): {p_used} GB used | {p_free} GB left (of {p_tot} GB)\n"
-            f"🔋 Combined Left: {tot_free} GB / {tot_cap} GB"
+            f"☁️ Saved To: {target.upper()}\n\n"
+            f"📊 Cloud Storage:\n"
+            + quota_line("MEGA", m_stats, m_cnt) + "\n"
+            + quota_line("pCloud", p_stats, p_cnt) + combined
         )
     else:
         notify(f"⚠️ Failed to transfer {safe_name}:\nReason: {err_detail}")
 
-# Remove only processed lines so new lines queued mid-run are preserved
+# Remove successful entries, preserve newly queued entries, and rotate failed
+# attempted entries behind untouched work so one bad link cannot block the queue.
 if os.path.exists("links.txt"):
     latest = [l.strip() for l in open("links.txt") if l.strip()]
     remaining = [l for l in latest if l not in processed]
-    open("links.txt", "w").write(("\n".join(remaining) + "\n") if remaining else "")
+    attempted = set(batch)
+    deferred = [line for line in batch if line in remaining]
+    untouched = [line for line in remaining if line not in attempted]
+    ordered = untouched + deferred
+    open("links.txt", "w").write(("\n".join(ordered) + "\n") if ordered else "")
+    if deferred:
+        notify(
+            f"⏭️ Deferred {len(deferred)} item(s) that failed this run. "
+            f"They remain queued behind {len(untouched)} untouched item(s); nothing was deleted."
+        )
