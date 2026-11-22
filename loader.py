@@ -20,7 +20,7 @@ def notify(msg):
             print(f"Telegram notification skipped: {type(exc).__name__}: {exc}")
 
 def get_cloud_stats(remote):
-    """Return real provider quota in GiB, or None when it cannot be verified."""
+    """Return real provider quota in decimal GB, or None when it cannot be verified."""
     try:
         import time
         time.sleep(3)
@@ -53,6 +53,8 @@ def get_cloud_stats(remote):
 
 def count_clips(remote):
     try:
+        import time
+        time.sleep(3)
         out = subprocess.check_output(["rclone", "lsf", f"{remote}:GTA_Clips"], text=True, timeout=20)
         return len([x for x in out.splitlines() if x.strip().endswith(".mp4")])
     except Exception:
@@ -77,6 +79,8 @@ def remote_ready(remote):
 
 def verify_uploaded_file(remote, filename, expected_size):
     try:
+        import time
+        time.sleep(3)
         raw = subprocess.check_output(
             ["rclone", "lsjson", f"{remote}:GTA_Clips"],
             text=True, stderr=subprocess.PIPE, timeout=60
@@ -142,7 +146,9 @@ for line in lines:
                 err_detail = str(e)
     elif src.startswith("http"):
         # yt-dlp is installed once by the workflow, not for every queued item.
-        cmd = ["yt-dlp", "-f", "best[height<=720][ext=mp4]/best[height<=720]", "--no-playlist", "-o", local_file, src]
+        cmd = ["yt-dlp", "--no-warnings", "--retries", "3", "--fragment-retries", "3",
+               "--concurrent-fragments", "4", "-f", "best[height<=720][ext=mp4]/best[height<=720]",
+               "--no-playlist", "-o", local_file, src]
         if YT_COOKIES:
             cmd[1:1] = ["--cookies", "/tmp/cookies.txt"]
         try:
@@ -161,10 +167,10 @@ for line in lines:
             if stats is not None:
                 remote_state[remote] = stats
 
-        required_gib = os.path.getsize(local_file) / (1024 ** 3) + 0.25
+        required_gb = os.path.getsize(local_file) / 1_000_000_000 + 0.25
         candidates = [
             remote for remote, (_, free, total) in remote_state.items()
-            if total > 0 and free >= required_gib
+            if total > 0 and free >= required_gb
         ]
         if not candidates:
             notify(f"❌ No usable MEGA/pCloud destination for {safe_name}. Source retained in queue for retry.")
