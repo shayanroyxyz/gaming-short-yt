@@ -30,7 +30,7 @@ async def _tts_async(text, out_mp3, voice):
     return word_boundaries
 
 def synthesize_human_voice(script_text, out_mp3="/tmp/voice.mp3"):
-    clean = re.sub(r"[#*_~\\[\\]()]", "", script_text).strip()
+    clean = re.sub(r"[#*_~\[\]()], "", script_text).strip()
     voice = "en-US-AndrewMultilingualNeural"
     try:
         boundaries = asyncio.run(_tts_async(clean, out_mp3, voice))
@@ -96,7 +96,9 @@ def render_blur_landscape_short(src_video, script_text, out_video="/tmp/final_sh
     if not os.path.isfile(src_video) or os.path.getsize(src_video) < 100_000:
         raise RuntimeError(f"Source video is missing or too small: {src_video}")
 
-    tts_result = synthesize_human_voice(script_text)\n    mp3_path, audio_dur, voice_used = tts_result[:3]\n    word_boundaries = tts_result[3] if len(tts_result) > 3 else None
+    tts_result = synthesize_human_voice(script_text)
+    mp3_path, audio_dur, voice_used = tts_result[:3]
+    word_boundaries = tts_result[3] if len(tts_result) > 3 else None
     target_dur = round(audio_dur + 0.35, 2)
     ass_path = build_clean_ass_captions(script_text, audio_dur, word_boundaries=word_boundaries)
 
