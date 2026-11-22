@@ -313,9 +313,15 @@ def stream_unique_action_clips(hist, focus):
         detail = ", ".join(remote_errors) if remote_errors else "No supported video files found"
         raise RuntimeError(f"No source clips available in MEGA/pCloud GTA_Clips ({detail}).")
 
+    # Never select a source file already confirmed as published. Unlike the
+    # rolling recent_sources list, this is a hard duplicate-prevention check.
+    published_files = set(hist.get("published_source_files", []))
+    eligible_pool = [(r, n) for r, n in pool if n not in published_files]
+    if not eligible_pool:
+        raise RuntimeError("All available cloud clips are already marked as published; refusing a duplicate upload.")
     recent_sources = set(hist.get("used_sources", [])[-30:])
-    fresh_pool = [(r, n) for r, n in pool if f"{r}:{n}" not in recent_sources]
-    candidates = fresh_pool or pool
+    fresh_pool = [(r, n) for r, n in eligible_pool if f"{r}:{n}" not in recent_sources]
+    candidates = fresh_pool or eligible_pool
 
     focus_key = str(focus or "auto").lower()
     focused = [(r, n) for r, n in candidates if focus_key != "auto" and focus_key in n.lower()]
@@ -516,6 +522,10 @@ def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist
         "uploaded_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
     })
     hist["uploaded_source_windows"] = hist["uploaded_source_windows"][-500:]
+    published_files = hist.setdefault("published_source_files", [])
+    if source_filename not in published_files:
+        published_files.append(source_filename)
+    hist["published_source_files"] = published_files[-1000:]
     with open("history.json", "w", encoding="utf-8") as history_file:
         json.dump(hist, history_file, indent=2)
     print("SUCCESS! Published Short ID:", vid_id)
@@ -562,7 +572,8 @@ if __name__ == "__main__":
             json.dump({"used_windows": hist.get("used_windows", [])[-400:],
                        "used_topics": hist.get("used_topics", [])[-100:],
                        "used_sources": hist.get("used_sources", [])[-100:],
-                       "uploaded_source_windows": hist.get("uploaded_source_windows", [])[-500:]},
+                       "uploaded_source_windows": hist.get("uploaded_source_windows", [])[-500:],
+                       "published_source_files": hist.get("published_source_files", [])[-1000:]},
                       history_file, indent=2)
         with open("config.json", "w", encoding="utf-8") as config_file:
             json.dump(cfg, config_file, indent=2)
