@@ -66,6 +66,9 @@ def count_clips(remote):
 def remote_ready(remote):
     """Return True only when rclone can authenticate to the configured remote."""
     try:
+        import time
+        if remote == "mega":
+            time.sleep(3)
         result = subprocess.run(
             ["rclone", "lsd", f"{remote}:"],
             capture_output=True, text=True, timeout=45
@@ -172,7 +175,7 @@ for line in lines:
             if not ok:
                 err_detail = (res.stderr or "Download did not produce a usable video")[-180:].strip()
         except subprocess.TimeoutExpired:
-            err_detail = "Source download exceeded the 8-minute safety limit; item remains queued."
+            err_detail = "Source download exceeded the 11-minute safety limit; item remains queued."
 
     if ok:
         fsize_mb = round(os.path.getsize(local_file) / (1024**2), 1)
@@ -181,9 +184,6 @@ for line in lines:
         candidates = [remote for remote in ("mega", "pcloud") if remote_ready(remote)]
         if not candidates:
             notify(f"❌ Neither MEGA nor pCloud authenticated for {safe_name}. The item remains queued.")
-            continue
-        if not candidates:
-            notify(f"❌ No usable MEGA/pCloud destination for {safe_name}. Source retained in queue for retry.")
             continue
 
         target = random.choice(candidates)
