@@ -422,7 +422,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     clean_name = os.path.splitext(fname)[0].replace("_", " ").replace("-", " ")
     recent_scripts = hist.get("recent_scripts", [])
     recent_scripts = [x.get("script", "") if isinstance(x, dict) else str(x) for x in recent_scripts[-20:]]
-    recent_avoid = "\\n".join(f"- {x}" for x in recent_scripts if x)
+    recent_avoid = "\n".join(f"- {x}" for x in recent_scripts if x)
     hype_now = fetch_live_hype_context()
     prompt = (
         "Write a truthful gaming Short based ONLY on the attached sampled gameplay frames. "
