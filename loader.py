@@ -172,7 +172,7 @@ for line in batch:
                 _, c_str, m_str = src.split(":")
                 notify(f"⬇️ Starting Telegram download: {safe_name}")
                 ok, err_detail = asyncio.run(asyncio.wait_for(
-                    download_tg_msg(int(c_str), int(m_str), local_file, safe_name), timeout=300
+                    download_tg_msg(int(c_str), int(m_str), local_file, safe_name), timeout=660
                 ))
             except Exception as e:
                 err_detail = str(e)
@@ -185,12 +185,12 @@ for line in batch:
             cmd[1:1] = ["--cookies", "/tmp/cookies.txt"]
         try:
             notify(f"⬇️ Starting source download: {safe_name}")
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=660)
             ok = os.path.exists(local_file) and os.path.getsize(local_file) > 500000
             if not ok:
                 err_detail = (res.stderr or "Download did not produce a usable video")[-180:].strip()
         except subprocess.TimeoutExpired:
-            err_detail = "Source download exceeded the 5-minute safety limit; item remains queued for retry."
+            err_detail = "Source download exceeded the 11-minute safety limit; item remains queued for retry."
 
     if ok:
         fsize_mb = round(os.path.getsize(local_file) / (1024**2), 1)
