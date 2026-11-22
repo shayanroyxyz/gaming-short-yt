@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GH_PAT || github.token }}
+          token: ${{ github.token }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -38,7 +38,7 @@ jobs:
       - name: Update links.txt safely
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git pull --rebase --autostash origin main
           git add links.txt
           if ! git diff --staged --quiet; then
