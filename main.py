@@ -285,62 +285,87 @@ def ask_ai_brain(prompt):
     raise RuntimeError("No AI API key succeeded.")
 
 def stream_unique_action_clips(hist, focus):
+    """Choose one cloud clip, download it locally, and validate it before rendering."""
     conf = os.environ.get("RCLONE_CONF", "").strip()
     if not conf:
-        raise RuntimeError("Missing RCLONE_CONF secret!")
-    os.makedirs(os.path.expanduser("~/.config/rclone"), exist_ok=True)
-    open(os.path.expanduser("~/.config/rclone/rclone.conf"), "w").write(conf)
+        raise RuntimeError("Missing RCLONE_CONF secret.")
 
-    pool = []
-    for remote in ["mega", "pcloud"]:
+    config_dir = os.path.expanduser("~/.config/rclone")
+    os.makedirs(config_dir, exist_ok=True)
+    with open(os.path.join(config_dir, "rclone.conf"), "w", encoding="utf-8") as config_file:
+        config_file.write(conf)
+
+    pool, remote_errors = [], []
+    for remote in ("mega", "pcloud"):
         try:
-            out = subprocess.check_output(["rclone", "lsjson", f"{remote}:GTA_Clips"], stderr=subprocess.DEVNULL).decode()
-            for f in json.loads(out):
-                if not f.get("IsDir") and f["Name"].lower().endswith((".mp4", ".mkv", ".webm")):
-                    pool.append((remote, f["Name"]))
-        except Exception:
-            pass
+            raw = subprocess.check_output(
+                ["rclone", "lsjson", f"{remote}:GTA_Clips"],
+                stderr=subprocess.PIPE, text=True, timeout=90
+            )
+            for item in json.loads(raw):
+                name = item.get("Name", "")
+                if not item.get("IsDir") and name.lower().endswith((".mp4", ".mkv", ".webm")):
+                    pool.append((remote, name))
+        except Exception as exc:
+            remote_errors.append(f"{remote}: {type(exc).__name__}")
 
     if not pool:
-        raise RuntimeError("No videos in mega:GTA_Clips or pcloud:GTA_Clips! Paste a YouTube link in Telegram first.")
+        detail = ", ".join(remote_errors) if remote_errors else "No supported video files found"
+        raise RuntimeError(f"No source clips available in MEGA/pCloud GTA_Clips ({detail}).")
 
-    focused = [x for x in pool if focus != "auto" and focus in x[1].lower()]
+    recent_sources = set(hist.get("used_sources", [])[-30:])
+    fresh_pool = [(r, n) for r, n in pool if f"{r}:{n}" not in recent_sources]
+    candidates = fresh_pool or pool
+
+    focus_key = str(focus or "auto").lower()
+    focused = [(r, n) for r, n in candidates if focus_key != "auto" and focus_key in n.lower()]
     if focused:
         remote, fname = random.choice(focused)
     else:
-        gta_files = [x for x in pool if "gta" in x[1].lower()]
-        remote, fname = random.choice(gta_files) if (gta_files and random.random() < 0.75) else random.choice(pool)
+        gta_files = [(r, n) for r, n in candidates if "gta" in n.lower()]
+        remote, fname = random.choice(gta_files) if gta_files and random.random() < 0.75 else random.choice(candidates)
 
-    srv = subprocess.Popen(["rclone", "serve", "http", f"{remote}:GTA_Clips", "--addr", "127.0.0.1:8080"])
-    try:
-        time.sleep(3)
-        url = f"http://127.0.0.1:8080/{urllib.parse.quote(fname)}"
-        probe = subprocess.check_output([
+    ext = os.path.splitext(fname)[1].lower()
+    if ext not in (".mp4", ".mkv", ".webm"):
+        raise RuntimeError(f"Unsupported source extension: {ext or '(none)'}")
+
+    local_clip = os.path.join("/tmp", f"gta_source_clip{ext}")
+    if os.path.exists(local_clip):
+        os.remove(local_clip)
+
+    source_path = f"{remote}:GTA_Clips/{fname}"
+    print(f">> Downloading selected source from {remote}: {fname}")
+    subprocess.run(
+        [
+            "rclone", "copyto", source_path, local_clip,
+            "--retries", "3", "--low-level-retries", "5",
+            "--timeout", "90s", "--contimeout", "30s"
+        ],
+        check=True, capture_output=True, text=True, timeout=540
+    )
+
+    if not os.path.isfile(local_clip) or os.path.getsize(local_clip) < 100_000:
+        raise RuntimeError("Cloud download completed without a valid local video file.")
+
+    duration_text = subprocess.check_output(
+        [
             "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", url
-        ]).decode().strip()
-        dur = float(probe)
+            "-of", "default=noprint_wrappers=1:nokey=1", local_clip
+        ],
+        text=True, stderr=subprocess.PIPE, timeout=60
+    ).strip()
+    try:
+        duration = float(duration_text)
+    except (TypeError, ValueError):
+        raise RuntimeError(f"ffprobe returned an invalid source duration: {duration_text!r}")
+    if not (1.0 < duration < 86400):
+        raise RuntimeError(f"Source video duration is invalid: {duration_text!r}")
 
-        safe_start = int(dur * 0.06)
-        safe_end = max(safe_start + 25, int(dur * 0.92))
-        mid = (safe_start + safe_end) // 2
-
-        for _ in range(20):
-            t1 = random.randint(safe_start, max(safe_start, mid - 10))
-            t2 = random.randint(mid, max(mid, safe_end - 10))
-            win_key = f"{fname}:{t1//15}:{t2//15}"
-            if win_key not in hist["used_windows"]:
-                hist["used_windows"].append(win_key)
-                break
-
-        for idx, ts in enumerate([t1, t2]):
-            render_blur_landscape_short(local_clip, script_text, output_path)
-
-        open("concat.txt", "w").write("file 'cut_0.mp4'\nfile 'cut_1.mp4'\n")
-        subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "raw.mp4"], check=True)
-    finally:
-        srv.terminate()
-    return fname
+    used_sources = hist.setdefault("used_sources", [])
+    used_sources.append(f"{remote}:{fname}")
+    hist["used_sources"] = used_sources[-100:]
+    print(f">> Source validated: {duration:.2f}s, {os.path.getsize(local_clip)} bytes")
+    return fname, local_clip
 
 def generate_viral_package(fname, hist, focus):
     clean_name = os.path.splitext(fname)[0].replace("_", " ").replace("-", " ")
@@ -473,13 +498,26 @@ if __name__ == "__main__":
         hist = json.load(open("history.json")) if os.path.exists("history.json") else {"used_windows": [], "used_topics": []}
         cfg = json.load(open("config.json")) if os.path.exists("config.json") else {"focus": "auto", "last_video_id": "", "pending_url": ""}
         focus = cfg.get("focus", "auto")
-        fname = stream_unique_action_clips(hist, focus)
+        fname, local_clip = stream_unique_action_clips(hist, focus)
         title, top_hook, script, first_comment, ig_caption, tags = generate_viral_package(fname, hist, focus)
-        asyncio.run(build_voice_and_captions(script, top_hook))
-        render_with_dynamic_fx()
+        rendered_path = render_blur_landscape_short(local_clip, script, "final.mp4")
+        if not os.path.isfile(rendered_path) or os.path.getsize(rendered_path) < 100_000:
+            raise RuntimeError("Render step returned without a valid final video.")
+        final_duration = float(subprocess.check_output(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", rendered_path],
+            text=True, timeout=60
+        ).strip())
+        if not (1.0 < final_duration < 180.0):
+            raise RuntimeError(f"Rendered Short duration is outside the expected range: {final_duration:.2f}s")
         publish_everywhere(title, script, first_comment, ig_caption, tags, cfg)
-        json.dump({"used_windows": hist["used_windows"][-400:], "used_topics": hist["used_topics"][-100:]}, open("history.json", "w"), indent=2)
-        json.dump(cfg, open("config.json", "w"), indent=2)
+        with open("history.json", "w", encoding="utf-8") as history_file:
+            json.dump({"used_windows": hist.get("used_windows", [])[-400:],
+                       "used_topics": hist.get("used_topics", [])[-100:],
+                       "used_sources": hist.get("used_sources", [])[-100:]},
+                      history_file, indent=2)
+        with open("config.json", "w", encoding="utf-8") as config_file:
+            json.dump(cfg, config_file, indent=2)
     except Exception as e:
         deliver_to_telegram(f"⚠️ Pipeline Alert: {e}")
         raise
