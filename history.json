@@ -1,11 +1,13 @@
 {
   "used_windows": [],
   "used_topics": [
-    "GTA SIX SALES ARE INSANE"
+    "GTA SIX SALES ARE INSANE",
+    "GTA SIX CRUSHES ALL RECORDS"
   ],
   "used_sources": [
     "pcloud:[GTA5]_Clip_6751_mp4_mp4.mp4",
-    "pcloud:[GTA4]_Clip_202.mp4"
+    "pcloud:[GTA4]_Clip_202.mp4",
+    "pcloud:[GTA5]_Clip_5092.mp4"
   ],
   "uploaded_source_windows": [
     {
@@ -24,10 +26,20 @@
       "video_id": "_W1oMyMQ0Mc",
       "privacy_status": "UNKNOWN",
       "uploaded_at": "2026-11-22T11:33:53.687922+00:00"
+    },
+    {
+      "hash": "1044a8e74cdedd71ae0476c1b82404f3ce197efec7930f7ebec0323416032b2c",
+      "source": "[GTA5]_Clip_5092.mp4",
+      "start_second": 0.0,
+      "duration": 190.135102,
+      "video_id": "WSRUZ5IkbDM",
+      "privacy_status": "UNKNOWN",
+      "uploaded_at": "2026-11-22T15:28:44.570471+00:00"
     }
   ],
   "published_source_files": [
     "[GTA5]_Clip_6751_mp4_mp4.mp4",
-    "[GTA4]_Clip_202.mp4"
+    "[GTA4]_Clip_202.mp4",
+    "[GTA5]_Clip_5092.mp4"
   ]
 }
