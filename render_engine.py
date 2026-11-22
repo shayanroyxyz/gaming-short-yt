@@ -23,17 +23,21 @@ async def _tts_async(text, out_mp3, voice):
     await comm.save(out_mp3)
 
 def synthesize_human_voice(script_text, out_mp3="/tmp/voice.mp3"):
-    clean = re.sub(r"[#*`_~\[\]()]", "", script_text).strip()
+    clean = re.sub(r"[#*\x60_~\\[\\]()]","", script_text).strip()
     voice = random.choice(NEURAL_VOICES)
     try:
         asyncio.run(_tts_async(clean, out_mp3, voice))
-    except Exception:
-        # Fallback voice if primary fails
-        asyncio.run(_tts_async(clean, out_mp3, "en-US-ChristopherNeural"))
-    dur = float(subprocess.check_output([
+    except Exception as primary_error:
+        print(f"TTS voice {voice} failed; using Christopher fallback: {primary_error}")
+        voice = "en-US-ChristopherNeural"
+        asyncio.run(_tts_async(clean, out_mp3, voice))
+    dur_text = subprocess.check_output([
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", out_mp3
-    ], text=True).strip())
+    ], text=True, timeout=60).strip()
+    dur = float(dur_text)
+    if not (0.5 < dur < 180):
+        raise RuntimeError(f"Generated voice duration is invalid: {dur_text!r}")
     return out_mp3, dur, voice
 
 def build_clean_ass_captions(script_text, audio_dur, out_ass="/tmp/captions.ass"):
@@ -104,40 +108,62 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return out_ass
 
 def render_blur_landscape_short(src_video, script_text, out_video="/tmp/final_short.mp4"):
+    """Render one validated source as a 9:16 Short with a complete voice track."""
+    if not os.path.isfile(src_video) or os.path.getsize(src_video) < 100_000:
+        raise RuntimeError(f"Source video is missing or too small: {src_video}")
+
     mp3_path, audio_dur, voice_used = synthesize_human_voice(script_text)
     target_dur = round(audio_dur + 0.35, 2)
     ass_path = build_clean_ass_captions(script_text, audio_dur)
 
-    vid_dur = float(subprocess.check_output([
+    duration_text = subprocess.check_output([
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", src_video
-    ], text=True).strip())
+    ], text=True, timeout=60).strip()
+    source_dur = float(duration_text)
+    if not (1.0 < source_dur < 86400):
+        raise RuntimeError(f"Source video duration is invalid: {duration_text!r}")
 
-    # Pick 2 clean non-intro action slices that together match the FULL voiceover duration
-    half = target_dur / 2.0
-    safe_start = min(15.0, vid_dur * 0.1)
-    safe_end = max(safe_start + half + 1.0, vid_dur - half - 5.0)
-    t1 = round(random.uniform(safe_start, max(safe_start + 0.5, safe_end - half)), 2)
-    t2 = round(random.uniform(safe_start, max(safe_start + 0.5, safe_end)), 2)
+    # Loop short sources rather than creating a black tail; choose a valid seek point for long sources.
+    max_start = max(0.0, source_dur - target_dur - 0.25)
+    clip_start = round(random.uniform(0.0, max_start), 2) if max_start > 0 else 0.0
 
-    # Full 16:9 landscape centered (1080x608) over smooth blurred 9:16 background + clean ASS captions
-    fc = (
-        f"[0:v]trim=start={t1}:duration={half + 0.2},setpts=PTS-STARTPTS[v1];"
-        f"[0:v]trim=start={t2}:duration={half + 0.2},setpts=PTS-STARTPTS[v2];"
-        f"[v1][v2]concat=n=2:v=1:a=0,fps=30,split=2[bg][fg];"
-        f"[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=35,eq=brightness=-0.08[bg_blur];"
-        f"[fg]scale=1080:-2[fg_fit];"
+    # Keep the full landscape frame visible. The foreground is fitted into a 16:9 canvas;
+    # the blurred duplicate fills the vertical background without cropping the foreground.
+    filter_graph = (
+        f"[0:v]trim=start={clip_start}:duration={target_dur},setpts=PTS-STARTPTS,fps=30,split=2[bg][fg];"
+        "[bg]scale=1080:1920:force_original_aspect_ratio=increase,"
+        "crop=1080:1920,gblur=sigma=35,eq=brightness=-0.08[bg_blur];"
+        "[fg]scale=1080:608:force_original_aspect_ratio=decrease,"
+        "pad=1080:608:(ow-iw)/2:(oh-ih)/2:black[fg_fit];"
         f"[bg_blur][fg_fit]overlay=(W-w)/2:(H-h)/2,ass={ass_path}[outv]"
     )
 
-    subprocess.run([
-        "ffmpeg", "-y", "-i", src_video, "-i", mp3_path,
-        "-filter_complex", fc,
-        "-map", "[outv]", "-map", "1:a",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
-        "-c:a", "aac", "-b:a", "192k",
+    command = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-stream_loop", "-1", "-i", src_video,
+        "-i", mp3_path,
+        "-filter_complex", filter_graph,
+        "-map", "[outv]", "-map", "1:a:0",
         "-t", str(target_dur),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+        "-pix_fmt", "yuv420p", "-r", "30",
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
         out_video
-    ], check=True)
-    print(f"✅ Rendered {target_dur}s blur-bg Short with voice {voice_used}")
+    ]
+    subprocess.run(command, check=True, timeout=540)
+    if not os.path.isfile(out_video) or os.path.getsize(out_video) < 100_000:
+        raise RuntimeError("FFmpeg completed without producing a valid output video.")
+
+    output_duration = float(subprocess.check_output([
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", out_video
+    ], text=True, timeout=60).strip())
+    if abs(output_duration - target_dur) > 1.0:
+        raise RuntimeError(
+            f"Rendered duration mismatch: expected {target_dur:.2f}s, got {output_duration:.2f}s"
+        )
+
+    print(f"Rendered {output_duration:.2f}s Short with {voice_used}; full landscape foreground + blur background.")
     return out_video
