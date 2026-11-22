@@ -22,11 +22,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ github.token }}
+          token: ${{ secrets.GH_PAT || github.token }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core rclone
+      - name: Install FFmpeg, fonts and official rclone
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core curl
+          curl --proto '=https' --tlsv1.2 -sSf https://rclone.org/install.sh | sudo bash
+          rclone version
+          rclone help backends | grep -i mega
       - run: pip install -q -r requirements.txt
       - name: Drain pending Telegram and URL queue before rendering
         env:
