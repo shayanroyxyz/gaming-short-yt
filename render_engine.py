@@ -15,41 +15,50 @@ PALETTE_BGR = [
 
 async def _tts_async(text, out_mp3, voice):
     comm = edge_tts.Communicate(text, voice, rate="+6%", pitch="-1Hz")
-    await comm.save(out_mp3)
+    audio_parts, word_boundaries = [], []
+    async for chunk in comm.stream():
+        if chunk.get("type") == "audio":
+            audio_parts.append(chunk.get("data", b""))
+        elif chunk.get("type") == "WordBoundary":
+            word_boundaries.append({"text": chunk.get("text", ""),
+                "start": float(chunk.get("offset", 0)) / 10000000,
+                "duration": float(chunk.get("duration", 0)) / 10000000})
+    if not audio_parts:
+        raise RuntimeError("Edge TTS returned no audio data")
+    with open(out_mp3, "wb") as f:
+        for part in audio_parts: f.write(part)
+    return word_boundaries
 
 def synthesize_human_voice(script_text, out_mp3="/tmp/voice.mp3"):
-    clean = re.sub(r"[#*\x60_~\\[\\]()]","", script_text).strip()
-    voice = random.choice(NEURAL_VOICES)
+    clean = re.sub(r"[#*_~\\[\\]()]", "", script_text).strip()
+    voice = "en-US-AndrewMultilingualNeural"
     try:
-        asyncio.run(_tts_async(clean, out_mp3, voice))
-    except Exception as primary_error:
-        print(f"TTS voice {voice} failed; using Christopher fallback: {primary_error}")
+        boundaries = asyncio.run(_tts_async(clean, out_mp3, voice))
+    except Exception as exc:
+        print(f"TTS voice {voice} failed; using Christopher fallback: {exc}")
         voice = "en-US-ChristopherNeural"
-        asyncio.run(_tts_async(clean, out_mp3, voice))
-    dur_text = subprocess.check_output([
+        boundaries = asyncio.run(_tts_async(clean, out_mp3, voice))
+    dur = float(subprocess.check_output([
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", out_mp3
-    ], text=True, timeout=60).strip()
-    dur = float(dur_text)
-    if not (0.5 < dur < 180):
-        raise RuntimeError(f"Generated voice duration is invalid: {dur_text!r}")
-    return out_mp3, dur, voice
+    ], text=True, timeout=60).strip())
+    if not (0.5 < dur < 180): raise RuntimeError(f"Generated voice duration is invalid: {dur}")
+    return out_mp3, dur, voice, boundaries
 
-def build_clean_ass_captions(script_text, audio_dur, out_ass="/tmp/captions.ass"):
-    words = [w.strip() for w in re.sub(r"[^a-zA-Z0-9\s\x27!?.-]", "", script_text).split() if w.strip()]
-    if not words:
-        words = ["WATCH", "THIS", "SECRET"]
-
-    # Group into punchy 2-3 word chunks so text never overflows or overlaps
-    chunks = []
-    i = 0
-    while i < len(words):
-        step = 2 if (i % 4 == 0 or len(words[i]) > 7) else 3
-        chunks.append(" ".join(words[i:i+step]).upper())
-        i += step
-
-    total_chars = sum(len(c) for c in chunks) or 1
-    t_cursor = 0.05
+def build_clean_ass_captions(script_text, audio_dur, out_ass="/tmp/captions.ass", word_boundaries=None):
+    words = re.findall(r"\\S+", re.sub(r"[#*_~\\[\\]()]", "", script_text).strip())
+    if not words: raise ValueError("Cannot create captions for an empty narration script")
+    chunks = [words[i:i+4] for i in range(0, len(words), 4)]
+    valid_boundaries = bool(word_boundaries) and len(word_boundaries) >= len(words)
+    if valid_boundaries:
+        starts = [max(0.0, float(x["start"])) for x in word_boundaries[:len(words)]]
+        ends = [starts[i] + max(0.01, float(word_boundaries[i].get("duration", 0))) for i in range(len(words))]
+    else:
+        lengths = [max(1, len(re.sub(r"\\W", "", w))) for w in words]
+        total, cursor, starts, ends = sum(lengths), 0, [], []
+        for n in lengths:
+            starts.append(audio_dur * cursor / total); cursor += n
+            ends.append(audio_dur * cursor / total)
 
     header = """[Script Info]
 ScriptType: v4.00+
@@ -59,45 +68,27 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: PopCap,DejaVu Sans,72,&H00FFFFFF&,&H000000FF&,&H00000000&,&H80000000&,-1,0,0,0,100,100,1,0,1,6,4,8,70,70,250,1
+Style: PopCap,DejaVu Sans,76,&H00FFFFFF&,&H000000FF&,&H00000000&,&H80000000&,-1,0,0,0,100,100,0,0,1,5,3,8,70,70,240,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     def fmt_ts(sec):
-        h = int(sec // 3600)
-        m = int((sec % 3600) // 60)
-        s = sec % 60
+        h, m, s = int(sec // 3600), int((sec % 3600) // 60), max(0, sec % 60)
         return f"{h}:{m:02d}:{s:05.2f}"
-
-    events = []
-    last_color = ""
-    consumed_chars = 0
+    events, last_color = [], None
     for idx, chunk in enumerate(chunks):
-        start_t = 0.05 + (max(0.0, audio_dur - 0.1) * consumed_chars / total_chars)
-        consumed_chars += len(chunk)
-        end_t = 0.05 + (max(0.0, audio_dur - 0.1) * consumed_chars / total_chars)
-        if idx == len(chunks) - 1:
-            end_t = audio_dur + 0.2
-
-        choices = [c for c in PALETTE_BGR if c != last_color]
-        color = random.choice(choices)
-        last_color = color
-
-        parts = chunk.split()
-        if len(parts) == 3:
-            display = f"{parts[0]}\\N{parts[1]} {parts[2]}"
-        elif len(parts) == 2 and len(chunk) > 11:
-            display = f"{parts[0]}\\N{parts[1]}"
-        else:
-            display = chunk
-
-        events.append(
-            f"Dialogue: 0,{fmt_ts(start_t)},{fmt_ts(end_t)},PopCap,,0,0,0,,{{\\c{color}}}{display}"
-        )
-
-    with open(out_ass, "w", encoding="utf-8") as f:
-        f.write(header + "\n".join(events) + "\n")
+        first, last = idx*4, min(len(words)-1, idx*4+len(chunk)-1)
+        st, en = starts[first], ends[last]
+        if idx+1 < len(chunks): en = max(st+0.12, min(en, starts[(idx+1)*4]-0.015))
+        else: en = max(en, min(audio_dur+0.2, en+0.2))
+        if en <= st: en = st+0.12
+        palette = [x for x in PALETTE_BGR if x != last_color]
+        color = random.choice(palette or PALETTE_BGR); last_color = color
+        top, lower = chunk[0].upper(), " ".join(x.upper() for x in chunk[1:])
+        text = "{\\an8\\c" + color + "\\fscx85\\fscy85\\t(0,80,\\fscx100\\fscy100)\\bord5\\shad3\\fs82}" + top + "\\N{\\fs66}" + lower
+        events.append(f"Dialogue: 0,{fmt_ts(st)},{fmt_ts(en)},PopCap,,0,0,0,,{text}")
+    with open(out_ass, "w", encoding="utf-8") as f: f.write(header + "\\n".join(events) + "\\n")
     return out_ass
 
 def render_blur_landscape_short(src_video, script_text, out_video="/tmp/final_short.mp4"):
@@ -105,9 +96,9 @@ def render_blur_landscape_short(src_video, script_text, out_video="/tmp/final_sh
     if not os.path.isfile(src_video) or os.path.getsize(src_video) < 100_000:
         raise RuntimeError(f"Source video is missing or too small: {src_video}")
 
-    mp3_path, audio_dur, voice_used = synthesize_human_voice(script_text)
+    tts_result = synthesize_human_voice(script_text)\n    mp3_path, audio_dur, voice_used = tts_result[:3]\n    word_boundaries = tts_result[3] if len(tts_result) > 3 else None
     target_dur = round(audio_dur + 0.35, 2)
-    ass_path = build_clean_ass_captions(script_text, audio_dur)
+    ass_path = build_clean_ass_captions(script_text, audio_dur, word_boundaries=word_boundaries)
 
     duration_text = subprocess.check_output([
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
