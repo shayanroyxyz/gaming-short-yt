@@ -615,6 +615,7 @@ def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist
     if privacy_check_detail:
         print("YouTube privacy verification detail:", privacy_check_detail)
 
+    comment_status = "Posted"
     try:
         youtube.commentThreads().insert(
             part="snippet",
@@ -622,6 +623,7 @@ def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist
         ).execute()
     except Exception as e:
         comment_detail = _youtube_error_details(e)
+        comment_status = f"Skipped: {comment_detail}"
         print("Comment post skip:", comment_detail)
 
     pcloud_target = f"pcloud:Ready_Reels/{vid_id}.mp4"
@@ -636,6 +638,7 @@ def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist
         f"Title: {title}\n"
         f"YouTube: https://youtube.com/shorts/{vid_id}\n"
         f"{privacy_line}\n"
+        f"YouTube pinned comment: {comment_status}\n"
         f"Instagram Reels: {ig_status}"
     )
     deliver_to_telegram(summary, "final.mp4", ig_caption)
