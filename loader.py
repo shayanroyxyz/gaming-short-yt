@@ -14,7 +14,7 @@ def notify(msg):
 
 def get_cloud_stats(remote):
     try:
-        out = subprocess.check_output(["rclone", "about", f"{remote}:", "--json"], text=True, timeout=25)
+        out = subprocess.check_output(["rclone", "about", f"{remote}:", "--json"], text=True, timeout=60)
         d = json.loads(out)
         total = d.get("total", 0) / (1024**3)
         used = d.get("used", 0) / (1024**3)
