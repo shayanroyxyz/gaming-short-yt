@@ -10,7 +10,14 @@ YT_COOKIES = os.environ.get("YT_COOKIES", "").strip()
 
 def notify(msg):
     if TOKEN and CHAT_ID:
-        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg}, timeout=20)
+        try:
+            response = requests.post(
+                f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                data={"chat_id": CHAT_ID, "text": msg}, timeout=20
+            )
+            response.raise_for_status()
+        except Exception as exc:
+            print(f"Telegram notification skipped: {type(exc).__name__}: {exc}")
 
 def get_cloud_stats(remote):
     import time
@@ -39,6 +46,36 @@ def count_clips(remote):
         return len([x for x in out.splitlines() if x.strip().endswith(".mp4")])
     except Exception:
         return 0
+
+def remote_ready(remote):
+    """Return True only when rclone can authenticate to the configured remote."""
+    try:
+        result = subprocess.run(
+            ["rclone", "lsd", f"{remote}:"],
+            capture_output=True, text=True, timeout=45
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "remote unavailable").strip()
+            print(f"[{remote}] remote unavailable: {detail[-350:]}")
+            return False
+        return True
+    except Exception as exc:
+        print(f"[{remote}] remote check failed: {type(exc).__name__}: {exc}")
+        return False
+
+
+def verify_uploaded_file(remote, filename, expected_size):
+    try:
+        raw = subprocess.check_output(
+            ["rclone", "lsjson", f"{remote}:GTA_Clips"],
+            text=True, stderr=subprocess.PIPE, timeout=60
+        )
+        for item in json.loads(raw):
+            if item.get("Name") == filename and not item.get("IsDir"):
+                return int(item.get("Size", -1)) == int(expected_size)
+    except Exception as exc:
+        print(f"[{remote}] upload verification failed: {type(exc).__name__}: {exc}")
+    return False
 
 async def download_tg_msg(cid, mid, out_path):
     client = TelegramClient("/tmp/bot_mtproto", API_ID, API_HASH)
@@ -101,24 +138,39 @@ for line in lines:
 
     if ok:
         fsize_mb = round(os.path.getsize(local_file) / (1024**2), 1)
-        m_used, m_free, m_tot = get_cloud_stats("mega")
-        p_used, p_free, p_tot = get_cloud_stats("pcloud")
+        remote_state = {}
+        for remote in ("mega", "pcloud"):
+            if remote_ready(remote):
+                used, free, total = get_cloud_stats(remote)
+                remote_state[remote] = (used, free, total)
 
-        candidates = []
-        if m_free > 0.5 or m_tot == 0: candidates.append("mega")
-        if p_free > 0.5 or p_tot == 0: candidates.append("pcloud")
-        target = random.choice(candidates) if candidates else "mega"
+        candidates = [
+            remote for remote, (_, free, total) in remote_state.items()
+            if free > 0.5 or total == 0
+        ]
+        if not candidates:
+            notify(f"❌ No usable MEGA/pCloud destination for {safe_name}. Source retained in queue for retry.")
+            continue
 
-        res = subprocess.run(["rclone", "copyto", local_file, f"{target}:GTA_Clips/{safe_name}"], capture_output=True, text=True)
-        if res.returncode != 0:
-            alt = "pcloud" if target == "mega" else "mega"
-            res2 = subprocess.run(["rclone", "copyto", local_file, f"{alt}:GTA_Clips/{safe_name}"], capture_output=True, text=True)
-            if res2.returncode == 0:
-                target = alt
-            else:
-                notify(f"❌ rclone upload failed for {safe_name}:\nMEGA: {res.stderr[-120:]}\npCloud: {res2.stderr[-120:]}")
-                os.remove(local_file)
-                continue
+        target = random.choice(candidates)
+        upload_result = None
+        for destination in [target] + [r for r in candidates if r != target]:
+            attempt = subprocess.run(
+                ["rclone", "copyto", local_file, f"{destination}:GTA_Clips/{safe_name}"],
+                capture_output=True, text=True, timeout=600
+            )
+            if attempt.returncode == 0 and verify_uploaded_file(
+                destination, safe_name, os.path.getsize(local_file)
+            ):
+                target = destination
+                upload_result = attempt
+                break
+            detail = (attempt.stderr or attempt.stdout or "remote size verification failed").strip()
+            print(f"[{destination}] upload failed or did not verify: {detail[-350:]}")
+
+        if upload_result is None:
+            notify(f"❌ Cloud upload failed or could not be verified for {safe_name}. Source retained in queue for retry.")
+            continue
 
         processed.add(line)
         os.remove(local_file)
