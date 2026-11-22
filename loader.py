@@ -146,7 +146,11 @@ if YT_COOKIES:
     open("/tmp/cookies.txt", "w").write(YT_COOKIES)
 
 processed = set()
-for line in lines:
+# Bound each workflow run so a slow source cannot consume the entire scheduled window.
+# Failed entries are rotated behind untouched entries at the end of the run.
+MAX_ITEMS_PER_RUN = 2
+batch = lines[:MAX_ITEMS_PER_RUN]
+for line in batch:
     
     src, fname = [x.strip() for x in line.split("|", 1)]
     stem, ext = os.path.splitext(fname)
@@ -168,7 +172,7 @@ for line in lines:
                 _, c_str, m_str = src.split(":")
                 notify(f"⬇️ Starting Telegram download: {safe_name}")
                 ok, err_detail = asyncio.run(asyncio.wait_for(
-                    download_tg_msg(int(c_str), int(m_str), local_file, safe_name), timeout=660
+                    download_tg_msg(int(c_str), int(m_str), local_file, safe_name), timeout=300
                 ))
             except Exception as e:
                 err_detail = str(e)
@@ -181,12 +185,12 @@ for line in lines:
             cmd[1:1] = ["--cookies", "/tmp/cookies.txt"]
         try:
             notify(f"⬇️ Starting source download: {safe_name}")
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=660)
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             ok = os.path.exists(local_file) and os.path.getsize(local_file) > 500000
             if not ok:
                 err_detail = (res.stderr or "Download did not produce a usable video")[-180:].strip()
         except subprocess.TimeoutExpired:
-            err_detail = "Source download exceeded the 11-minute safety limit; item remains queued."
+            err_detail = "Source download exceeded the 5-minute safety limit; item remains queued for retry."
 
     if ok:
         fsize_mb = round(os.path.getsize(local_file) / (1024**2), 1)
@@ -205,7 +209,7 @@ for line in lines:
             attempt = subprocess.run(
                 ["rclone", "copyto", local_file, f"{destination}:GTA_Clips/{safe_name}",
                  "--retries", "2", "--low-level-retries", "3", "--stats", "15s"],
-                capture_output=True, text=True, timeout=600
+                capture_output=True, text=True, timeout=420
             )
             if attempt.returncode == 0 and verify_uploaded_file(
                 destination, safe_name, os.path.getsize(local_file)
