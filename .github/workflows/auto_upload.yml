@@ -1,15 +1,20 @@
 name: 24/7 US Viral Gaming Shorts + IG Reels (6x Daily)
 on:
-  # UTC schedule aimed at US afternoon/evening viewing windows.
-  # Covers roughly noon, 3 PM, 6 PM and 9 PM Eastern across the day;
-  # daylight-saving changes shift local times by one hour.
+  # Six daily runs at 9 AM, 12 PM, 3 PM, 6 PM, 9 PM and 12 AM
+  # US Eastern time. IANA timezone keeps these local times aligned across DST.
   schedule:
-    - cron: '17 17 * * *'
-    - cron: '17 20 * * *'
-    - cron: '17 23 * * *'
-    - cron: '17 2 * * *'
-    - cron: '17 5 * * *'
-    - cron: '17 14 * * *'
+    - cron: '17 9 * * *'
+      timezone: "America/New_York"
+    - cron: '17 12 * * *'
+      timezone: "America/New_York"
+    - cron: '17 15 * * *'
+      timezone: "America/New_York"
+    - cron: '17 18 * * *'
+      timezone: "America/New_York"
+    - cron: '17 21 * * *'
+      timezone: "America/New_York"
+    - cron: '17 0 * * *'
+      timezone: "America/New_York"
   workflow_dispatch:
 permissions:
   contents: write
