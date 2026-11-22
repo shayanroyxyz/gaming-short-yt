@@ -24,9 +24,15 @@ jobs:
         with:
           python-version: "3.11"
       - name: Verify GitHub write access before transferring
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
+          if [ -z "$GH_PAT" ]; then
+            echo "::error::GH_PAT repository secret is missing. Add a fine-grained token with Contents: Read and write before loading files."
+            exit 1
+          fi
           if ! git push --dry-run origin HEAD:main; then
-            echo "::error::GitHub rejected write access. Configure GH_PAT as a repository secret with Contents: Read and write before loading files."
+            echo "::error::GH_PAT could not verify write access. Check its repository selection and Contents permission."
             exit 1
           fi
       - name: Install rclone, ffmpeg & Telethon
