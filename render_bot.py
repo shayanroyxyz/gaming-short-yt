@@ -36,7 +36,15 @@ def send(cid, text, kb=MAIN_KB):
     requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": cid, "text": text, "reply_markup": json.dumps(kb)}, timeout=15)
 
 def trigger_wf(wf):
-    requests.post(f"https://api.github.com/repos/{REPO}/actions/workflows/{wf}/dispatches", headers=GH_HEADERS, json={"ref": "main"}, timeout=15)
+    try:
+        response = requests.post(
+            f"https://api.github.com/repos/{REPO}/actions/workflows/{wf}/dispatches",
+            headers=GH_HEADERS, json={"ref": "main"}, timeout=20
+        )
+        return response.status_code == 204
+    except requests.RequestException as exc:
+        print("Workflow dispatch failed:", repr(exc))
+        return False
 
 def gh_get(path):
     r = requests.get(f"https://api.github.com/repos/{REPO}/contents/{path}", headers=GH_HEADERS, timeout=15)
@@ -180,7 +188,11 @@ while True:
                 queue_item(cid, pending, f"[{tmap[text]}]_Clip_{int(time.time()) % 10000}.mp4" if text in tmap else text)
                 pending = ""
             elif text == "➕ Add Video Link": send(cid, "📎 Forward a video from @gozillabot_downloaderbot_bot, upload from Snaptube, or paste a YouTube link!", FOLDED_KB)
-            elif text in ["🚀 Make Short Now", "/make"]: trigger_wf("auto_upload.yml"); send(cid, "🚀 Triggered! Publishing to YT, IG Reels & Telegram in ~60s.", FOLDED_KB)
+            elif text in ["🚀 Make Short Now", "/make"]:
+                if trigger_wf("auto_upload.yml"):
+                    send(cid, "🚀 Workflow accepted by GitHub. I will report the actual publish result when the run finishes.", FOLDED_KB)
+                else:
+                    send(cid, "⚠️ GitHub did not accept the workflow request. Check the GH_PAT Actions permission and GitHub Actions status.", FOLDED_KB)
             elif text in ["🎯 Focus: GTA 6", "🎯 Focus: Auto"]:
                 val = "gta6" if "GTA 6" in text else "auto"
                 cur, _ = gh_get("config.json")
