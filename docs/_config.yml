@@ -1,0 +1,6 @@
+title: Gaming Shorts Agent
+description: Personal experimental gaming Shorts automation project
+theme: minima
+url: "https://shayanroyxyz.github.io"
+baseurl: "/gta-shorts-agent"
+markdown: kramdown
