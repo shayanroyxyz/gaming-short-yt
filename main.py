@@ -69,10 +69,8 @@ try:
                 except Exception as e:
                     print(f">> Gemini {gm} error: {e}")
 
-        # 4. Offline emergency script fallback so pipeline NEVER crashes
-        print(">> AI Brain Used: OFFLINE FALLBACK")
-        fallback_json = '{"hook": "NOBODY SURVIVES THIS TEST", "script": "Ninety-nine percent of players think they know how this game works until you push the physics engine to its absolute limit and watch what happens next when", "title": "Insane Gaming Physics Myth Tested! #shorts #gaming", "comment": "Did you expect that ending? Comment below!"}'
-        return type("Resp", (), {"text": fallback_json})()
+        # Never fabricate generic narration when every provider is unavailable.
+        raise RuntimeError("All AI providers failed; refusing to publish a generic fallback script.")
 
     _gmodels.Models.generate_content = _waterfall_generate
 except Exception as _patch_err:
@@ -154,7 +152,7 @@ class _SafeClientProxy:
     def __init__(self, real_client):
         self.models = _SafeModelsProxy(real_client.models)
 
-import os, re, json, time, random, asyncio, textwrap, subprocess, urllib.parse, xml.etree.ElementTree as ET, requests, edge_tts, hashlib, datetime
+import os, re, json, time, random, asyncio, textwrap, subprocess, urllib.parse, xml.etree.ElementTree as ET, requests, edge_tts, hashlib, datetime, base64
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -396,53 +394,97 @@ def _parse_strict_ai_json(raw):
         raise ValueError("narration must end with a complete sentence")
     return data
 
-def generate_viral_package(fname, hist, focus):
+def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
+    """Use sampled frames from the actual source clip; fail closed if visual analysis is unavailable."""
+    gem_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not gem_key:
+        raise RuntimeError("GEMINI_API_KEY is required for gameplay-aware scripts; refusing filename-only narration.")
+
+    duration_text = subprocess.check_output(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", local_clip],
+        text=True, timeout=30
+    ).strip()
+    duration = max(1.0, float(duration_text))
+    frame_paths = []
+    for index, fraction in enumerate((0.20, 0.50, 0.80), start=1):
+        frame_path = f"/tmp/gameplay_frame_{index}.jpg"
+        timestamp = min(max(0.0, duration * fraction), max(0.0, duration - 0.1))
+        subprocess.run(
+            ["ffmpeg", "-y", "-ss", str(timestamp), "-i", local_clip,
+             "-frames:v", "1", "-vf", "scale=768:-1", "-q:v", "5", frame_path],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=45
+        )
+        if not os.path.isfile(frame_path) or os.path.getsize(frame_path) < 1000:
+            raise RuntimeError(f"Could not extract gameplay evidence frame {index}.")
+        frame_paths.append(frame_path)
+
     clean_name = os.path.splitext(fname)[0].replace("_", " ").replace("-", " ")
+    recent_scripts = hist.get("recent_scripts", [])
+    recent_scripts = [x.get("script", "") if isinstance(x, dict) else str(x) for x in recent_scripts[-20:]]
+    recent_avoid = "\\n".join(f"- {x}" for x in recent_scripts if x)
     hype_now = fetch_live_hype_context()
-    recent_avoid = ", ".join(hist.get("used_topics", [])[-12:])
     prompt = (
-        f"Create accurate, natural US gaming Shorts narration for {clean_name}. Focus: {focus}. "
-        f"Current context: {hype_now}. Avoid repeating: [{recent_avoid}]. "
-        "Return ONLY strict JSON with required keys hook, script, title, comment. "
-        "hook: 4–6 uppercase words. script: 28–34 spoken words, natural and complete, "
-        "with an immediate hook, explanation, payoff, and finished final sentence. "
-        "title: under 70 characters. comment: one short audience question. "
-        "Optional keys: ig_caption (string), tags (array of strings). No markdown fences."
+        "Write a truthful gaming Short based ONLY on the attached sampled gameplay frames. "
+        "Infer only visible events; never invent actions, outcomes, characters, or mechanics. "
+        "If ambiguous, describe only what is certain. "
+        f"Filename (weak hint only): {clean_name}. Focus: {focus}. Optional trend context: {hype_now}. "
+        f"Do not reuse or closely paraphrase these recent scripts:\\n{recent_avoid}\\n"
+        "Return ONLY valid JSON with keys hook, script, title, comment, ig_caption, tags. "
+        "hook: 4-6 uppercase words. script: 28-34 spoken words, natural US English, "
+        "describe visible gameplay evidence and payoff, complete final sentence. "
+        "Avoid generic filler. title under 70 characters; comment one short question; "
+        "ig_caption short; tags array. No markdown fences."
     )
-    data = None
-    errors = []
-    for attempt in range(2):
+    parts = [{"text": prompt}]
+    for path in frame_paths:
+        with open(path, "rb") as image_file:
+            parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(image_file.read()).decode("ascii")}})
+    errors, data = [], None
+    for model in ("gemini-2.5-flash", "gemini-2.0-flash"):
         try:
-            request_prompt = prompt if attempt == 0 else (
-                prompt + " Your previous response failed validation. Return corrected JSON only; "
-                "count carefully and ensure 28–34 spoken words."
+            response = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gem_key}",
+                headers={"Content-Type": "application/json"},
+                json={"contents": [{"parts": parts}], "generationConfig": {"temperature": 0.8, "responseMimeType": "application/json"}},
+                timeout=60
             )
-            data = _parse_strict_ai_json(ask_ai_brain(request_prompt))
+            if response.status_code != 200:
+                errors.append(f"{model}: HTTP {response.status_code} {response.text[:160]}")
+                continue
+            raw = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+            candidate = _parse_strict_ai_json(raw)
+            from difflib import SequenceMatcher
+            normalized = re.sub(r"[^a-z0-9 ]", "", candidate["script"].lower())
+            if any(SequenceMatcher(None, normalized, re.sub(r"[^a-z0-9 ]", "", old.lower())).ratio() >= 0.78 for old in recent_scripts if old):
+                errors.append(f"{model}: narration too similar to a recent script")
+                continue
+            data = candidate
+            print(f">> Gameplay-aware narration generated by {model}; sampled 3 frames.")
             break
         except Exception as exc:
-            errors.append(str(exc))
-            print(f"AI package attempt {attempt + 1} rejected: {exc}")
-
+            errors.append(f"{model}: {type(exc).__name__}: {exc}")
     if data is None:
-        data = {
-            "hook": "THIS GAME BREAKS THE RULES",
-            "script": "Think the city always follows the rules? Watch this stunt break the physics, then catch the tiny detail that makes the ending even more surprising than you expect.",
-            "title": "This Game Breaks Its Own Rules #shorts #gaming",
-            "comment": "Did you expect that result?"
-        }
-        _parse_strict_ai_json(json.dumps(data))
-        print("Deterministic AI fallback used:", "; ".join(errors))
+        raise RuntimeError("Gameplay-aware script generation failed; refusing to publish. " + " | ".join(errors[-4:]))
 
-    title = data["title"][:85]
-    hook = data["hook"].replace("'", "").replace('"', "")
+    title = data["title"].strip()[:85]
+    hook = data["hook"].replace("'", "").replace('"', "").strip()
     script = data["script"].strip()
     comment = data["comment"].strip()
+    history = hist.setdefault("recent_scripts", [])
+    history.append({"source": fname, "script": script, "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+    hist["recent_scripts"] = history[-30:]
     hist.setdefault("used_topics", []).append(hook)
     caption = data.get("ig_caption") or f"{title} Follow for daily gaming secrets! #gaming #shorts"
-    tags = data.get("tags") or ["GTA6", "GTA5", "Minecraft", "Roblox", "Gaming", "Shorts"]
+    tags = data.get("tags") or ["Gaming", "Shorts"]
     if not isinstance(tags, list):
         tags = ["Gaming", "Shorts"]
     return title, hook, script, comment, caption, tags
+
+def generate_viral_package(fname, hist, focus, local_clip=None):
+    if not local_clip:
+        raise RuntimeError("A local gameplay clip is required for visual script analysis.")
+    return analyze_clip_and_generate_package(fname, local_clip, hist, focus)
 
 def source_window_hash(source_filename, start_second, duration):
     canonical = f"{source_filename}|{float(start_second):.3f}|{float(duration):.3f}"
@@ -644,7 +686,7 @@ if __name__ == "__main__":
         cfg = json.load(open("config.json")) if os.path.exists("config.json") else {"focus": "auto", "last_video_id": "", "pending_url": ""}
         focus = cfg.get("focus", "auto")
         fname, local_clip, source_hash, start_second, source_duration = stream_unique_action_clips(hist, focus)
-        title, top_hook, script, first_comment, ig_caption, tags = generate_viral_package(fname, hist, focus)
+        title, top_hook, script, first_comment, ig_caption, tags = generate_viral_package(fname, hist, focus, local_clip)
         rendered_path = render_blur_landscape_short(local_clip, script, "final.mp4", top_hook=top_hook)
         if not os.path.isfile(rendered_path) or os.path.getsize(rendered_path) < 100_000:
             raise RuntimeError("Render step returned without a valid final video.")
@@ -658,7 +700,7 @@ if __name__ == "__main__":
         publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist, source_hash, fname, start_second, source_duration)
         with open("history.json", "w", encoding="utf-8") as history_file:
             json.dump({"used_windows": hist.get("used_windows", [])[-400:],
-                       "used_topics": hist.get("used_topics", [])[-100:],
+                       "used_topics": hist.get("used_topics", [])[-100:],\n                       "recent_scripts": hist.get("recent_scripts", [])[-30:],
                        "used_sources": hist.get("used_sources", [])[-100:],
                        "uploaded_source_windows": hist.get("uploaded_source_windows", [])[-500:],
                        "published_source_files": hist.get("published_source_files", [])[-1000:]},
