@@ -152,10 +152,13 @@ while True:
                 else:
                     pending = src
                     send(cid, f"🎥 Video received ({sz} MB)!\nTap a game tag below (or type a custom name):", TAG_KB)
+                save_bot_state(offset, pending)
                 continue
 
             text = (msg.get("text") or "").strip()
-            if not text: continue
+            if not text:
+                save_bot_state(offset, pending)
+                continue
 
             if text in ["❌ Cancel", "/cancel"]:
                 pending = ""
