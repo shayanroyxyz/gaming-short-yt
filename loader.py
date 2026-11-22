@@ -20,25 +20,36 @@ def notify(msg):
             print(f"Telegram notification skipped: {type(exc).__name__}: {exc}")
 
 def get_cloud_stats(remote):
-    import time
-    time.sleep(2)
+    """Return real provider quota in GiB, or None when it cannot be verified."""
     try:
+        import time
+        time.sleep(3)
         res = subprocess.run(
             ["rclone", "about", f"{remote}:", "--json"],
-            capture_output=True, text=True, timeout=60
+            capture_output=True, text=True, timeout=35
         )
         if res.returncode != 0:
             detail = (res.stderr or res.stdout or "unknown rclone error").strip()
-            print(f"[{remote}] rclone about failed (exit {res.returncode}): {detail[-500:]}")
-            return 0.0, 0.0, 0.0
-        d = json.loads(res.stdout)
-        total = d.get("total", 0) / (1024**3)
-        used = d.get("used", 0) / (1024**3)
-        free = d.get("free", max(0, d.get("total", 0) - d.get("used", 0))) / (1024**3)
-        return round(used, 2), round(free, 2), round(total, 2)
+            print(f"[{remote}] quota lookup failed (exit {res.returncode}): {detail[-500:]}")
+            return None
+        data = json.loads(res.stdout or "{}")
+        total_bytes, used_bytes = data.get("total"), data.get("used")
+        free_bytes = data.get("free")
+        if total_bytes is None or used_bytes is None:
+            print(f"[{remote}] quota response omitted total/used; refusing to display a fake 0 GB quota.")
+            return None
+        if free_bytes is None:
+            free_bytes = max(0, int(total_bytes) - int(used_bytes))
+        if int(total_bytes) <= 0 or int(free_bytes) < 0:
+            print(f"[{remote}] quota response invalid: {data}")
+            return None
+        gib = 1024 ** 3
+        return (round(int(used_bytes) / gib, 2),
+                round(int(free_bytes) / gib, 2),
+                round(int(total_bytes) / gib, 2))
     except Exception as exc:
-        print(f"[{remote}] rclone about exception: {type(exc).__name__}: {exc}")
-        return 0.0, 0.0, 0.0
+        print(f"[{remote}] quota lookup exception: {type(exc).__name__}: {exc}")
+        return None
 
 def count_clips(remote):
     try:
@@ -127,7 +138,7 @@ for line in lines:
             except Exception as e:
                 err_detail = str(e)
     elif src.startswith("http"):
-        subprocess.run(["pip", "install", "-q", "-U", "yt-dlp"], check=False)
+        # yt-dlp is installed once by the workflow, not for every queued item.
         cmd = ["yt-dlp", "-f", "best[height<=720][ext=mp4]/best[height<=720]", "--no-playlist", "-o", local_file, src]
         if YT_COOKIES:
             cmd[1:1] = ["--cookies", "/tmp/cookies.txt"]
@@ -140,13 +151,14 @@ for line in lines:
         fsize_mb = round(os.path.getsize(local_file) / (1024**2), 1)
         remote_state = {}
         for remote in ("mega", "pcloud"):
-            if remote_ready(remote):
-                used, free, total = get_cloud_stats(remote)
-                remote_state[remote] = (used, free, total)
+            stats = get_cloud_stats(remote)
+            if stats is not None:
+                remote_state[remote] = stats
 
+        required_gib = os.path.getsize(local_file) / (1024 ** 3) + 0.25
         candidates = [
             remote for remote, (_, free, total) in remote_state.items()
-            if free > 0.5 or total == 0
+            if total > 0 and free >= required_gib
         ]
         if not candidates:
             notify(f"❌ No usable MEGA/pCloud destination for {safe_name}. Source retained in queue for retry.")
@@ -174,20 +186,24 @@ for line in lines:
 
         processed.add(line)
         os.remove(local_file)
-        m_used, m_free, m_tot = get_cloud_stats("mega")
-        p_used, p_free, p_tot = get_cloud_stats("pcloud")
+        m_stats = get_cloud_stats("mega")
+        p_stats = get_cloud_stats("pcloud")
         m_cnt, p_cnt = count_clips("mega"), count_clips("pcloud")
-        tot_free = round(m_free + p_free, 2)
-        tot_cap = round(m_tot + p_tot, 2)
-
+        def quota_line(name, stats, count):
+            if stats is None:
+                return f"• {name} ({count} visible clips): quota unavailable — check rclone remote/auth"
+            used, free, total = stats
+            return f"• {name} ({count} visible clips): {used} GB used | {free} GB free (of {total} GB)"
+        known = [x for x in (m_stats, p_stats) if x is not None]
+        combined = (f"\n🔋 Combined known free: {sum(x[1] for x in known):.2f} GB / {sum(x[2] for x in known):.2f} GB"
+                    if known else "\n🔋 Combined quota unavailable; no made-up totals shown.")
         notify(
-            f"✅ Unique Upload Complete!\n"
+            f"✅ Upload verified!\n"
             f"📁 File: {safe_name} ({fsize_mb} MB)\n"
-            f"☁️ Saved Exclusively To: {target.upper()}\n\n"
-            f"📊 Cloud Storage & Video Pool:\n"
-            f"• MEGA ({m_cnt} videos): {m_used} GB used | {m_free} GB left (of {m_tot} GB)\n"
-            f"• pCloud ({p_cnt} videos): {p_used} GB used | {p_free} GB left (of {p_tot} GB)\n"
-            f"🔋 Combined Left: {tot_free} GB / {tot_cap} GB"
+            f"☁️ Saved To: {target.upper()}\n\n"
+            f"📊 Cloud Storage:\n"
+            + quota_line("MEGA", m_stats, m_cnt) + "\n"
+            + quota_line("pCloud", p_stats, p_cnt) + combined
         )
     else:
         notify(f"⚠️ Failed to transfer {safe_name}:\nReason: {err_detail}")
