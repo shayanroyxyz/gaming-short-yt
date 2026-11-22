@@ -154,7 +154,7 @@ class _SafeClientProxy:
     def __init__(self, real_client):
         self.models = _SafeModelsProxy(real_client.models)
 
-import os, re, json, time, random, asyncio, textwrap, subprocess, urllib.parse, xml.etree.ElementTree as ET, requests, edge_tts
+import os, re, json, time, random, asyncio, textwrap, subprocess, urllib.parse, xml.etree.ElementTree as ET, requests, edge_tts, hashlib, datetime
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -361,50 +361,88 @@ def stream_unique_action_clips(hist, focus):
     if not (1.0 < duration < 86400):
         raise RuntimeError(f"Source video duration is invalid: {duration_text!r}")
 
+    start_second = 0.0
+    source_hash = source_window_hash(fname, start_second, duration)
+    uploaded = {entry.get("hash") for entry in hist.get("uploaded_source_windows", []) if isinstance(entry, dict)}
+    if source_hash in uploaded:
+        raise RuntimeError(f"Duplicate source window already uploaded; skipping: {fname}")
     used_sources = hist.setdefault("used_sources", [])
     used_sources.append(f"{remote}:{fname}")
     hist["used_sources"] = used_sources[-100:]
     print(f">> Source validated: {duration:.2f}s, {os.path.getsize(local_clip)} bytes")
-    return fname, local_clip
+    return fname, local_clip, source_hash, start_second, duration
+
+def _parse_strict_ai_json(raw):
+    cleaned = re.sub(r"^\s*\x60{3}(?:json)?\s*|\s*\x60{3}\s*$", "", str(raw).strip(), flags=re.IGNORECASE)
+    data = json.loads(cleaned)
+    if not isinstance(data, dict):
+        raise ValueError("AI response must be a JSON object")
+    required = ("hook", "script", "title", "comment")
+    if any(not isinstance(data.get(k), str) or not data[k].strip() for k in required):
+        raise ValueError("AI JSON must contain non-empty hook, script, title, and comment strings")
+    words = re.findall(r"\b[\w’'-]+\b", data["script"])
+    if not 55 <= len(words) <= 70:
+        raise ValueError(f"narration must contain 55–70 words; received {len(words)}")
+    if not re.search(r"[.!?][\"')\]]?$", data["script"].strip()):
+        raise ValueError("narration must end with a complete sentence")
+    return data
 
 def generate_viral_package(fname, hist, focus):
     clean_name = os.path.splitext(fname)[0].replace("_", " ").replace("-", " ")
     hype_now = fetch_live_hype_context()
-    angles = [
-        "Mythbusting (test a popular rumor or physics rule with a bold question at 0:00)",
-        "Physics & Realism Comparison (why older/newer engines humiliate competitors)",
-        "Quick Tip & Hidden Trick (secret mechanic or hidden detail 99% of players miss)",
-        "Did You Know? Lore & Easter Egg (dark backstory or secret developer detail)",
-        "Mini Challenge / Clutch Highlight (high-stakes test or impossible clutch)",
-        "Epic Fail / Ragdoll Physics Breakdown (why this engine moment went viral)"
-    ]
-    recent_avoid = ", ".join(hist["used_topics"][-12:])
+    recent_avoid = ", ".join(hist.get("used_topics", [])[-12:])
     prompt = (
-        f"You are a viral Tier-1 US gaming creator for YouTube Shorts & Instagram Reels. Source game file: {clean_name}. Focus mode: {focus}.\n"
-        f"Live US Gaming Hype Today: {hype_now}.\n"
-        f"Format: {random.choice(angles)}.\n"
-        f"Avoid repeating these recent topics: [{recent_avoid}].\n"
-        "Target metrics: 75%+ stayed-to-watch ratio and 100%+ loop retention on a 14-second video for a high-RPM US/UK/Canada audience.\n"
-        "Output ONLY valid JSON with keys: title, top_hook, script, first_comment, ig_caption, tags\n"
-        "- title: curiosity-gap YT title under 70 chars ending with #shorts #gaming\n"
-        "- top_hook: 4 to 6 words in ALL CAPS for a persistent top banner at 0:00 posing immediate stakes/curiosity (no emojis)\n"
-        "- script: EXACTLY 55 to 70 spoken words. Cover the complete selected topic with clear, natural US storytelling; start with an immediate hook, finish the explanation, and end on a complete sentence that echoes the opening idea. Never leave a sentence unfinished or cut off the topic.\n"
-        "- first_comment: 1 short engaging question to pin in comments to spark debate\n"
-        "- ig_caption: punchy US-targeted Instagram Reels caption with CTA (Follow for daily gaming secrets!) + 10 high-reach Tier-1 gaming hashtags\n"
-        "- tags: list of 8 high-search US gaming tags without #"
+        f"Create accurate, natural US gaming Shorts narration for {clean_name}. Focus: {focus}. "
+        f"Current context: {hype_now}. Avoid repeating: [{recent_avoid}]. "
+        "Return ONLY strict JSON with required keys hook, script, title, comment. "
+        "hook: 4–6 uppercase words. script: 55–70 spoken words, natural and complete, "
+        "with an immediate hook, explanation, payoff, and finished final sentence. "
+        "title: under 70 characters. comment: one short audience question. "
+        "Optional keys: ig_caption (string), tags (array of strings). No markdown fences."
     )
-    raw = ask_ai_brain(prompt)
-    cleaned = re.sub(r"^```json|```$", "", raw.strip(), flags=re.MULTILINE).strip()
-    data = json.loads(cleaned)
-    hist["used_topics"].append(data["top_hook"])
-    return (
-        data["title"][:85],
-        data["top_hook"].replace("'", "").replace('"', ""),
-        data["script"],
-        data.get("first_comment", "Which game should we test next? 👇"),
-        data.get("ig_caption", f"{data['title']} 🔥 Follow for daily gaming secrets! #gaming #gta6 #gta5 #reels #gamer #viral"),
-        data.get("tags", ["GTA6", "GTA5", "Shorts", "Gaming"])
-    )
+    data = None
+    errors = []
+    for attempt in range(2):
+        try:
+            request_prompt = prompt if attempt == 0 else (
+                prompt + " Your previous response failed validation. Return corrected JSON only; "
+                "count carefully and ensure 55–70 spoken words."
+            )
+            data = _parse_strict_ai_json(ask_ai_brain(request_prompt))
+            break
+        except Exception as exc:
+            errors.append(str(exc))
+            print(f"AI package attempt {attempt + 1} rejected: {exc}")
+
+    if data is None:
+        data = {
+            "hook": "THIS GAME BREAKS THE RULES",
+            "script": (
+                "Think this game follows predictable rules? Watch what happens when the test pushes its "
+                "physics beyond the usual limits. The result reveals a detail many players overlook, "
+                "and it changes how this moment looks. The experiment has a clear payoff, so watch the "
+                "final result closely. Did the game behave exactly as you expected?"
+            ),
+            "title": "This Game Breaks Its Own Rules #shorts #gaming",
+            "comment": "Did you expect that result?"
+        }
+        _parse_strict_ai_json(json.dumps(data))
+        print("Deterministic AI fallback used:", "; ".join(errors))
+
+    title = data["title"][:85]
+    hook = data["hook"].replace("'", "").replace('"', "")
+    script = data["script"].strip()
+    comment = data["comment"].strip()
+    hist.setdefault("used_topics", []).append(hook)
+    caption = data.get("ig_caption") or f"{title} Follow for daily gaming secrets! #gaming #shorts"
+    tags = data.get("tags") or ["GTA6", "GTA5", "Minecraft", "Roblox", "Gaming", "Shorts"]
+    if not isinstance(tags, list):
+        tags = ["Gaming", "Shorts"]
+    return title, hook, script, comment, caption, tags
+
+def source_window_hash(source_filename, start_second, duration):
+    canonical = f"{source_filename}|{float(start_second):.3f}|{float(duration):.3f}"
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 async def build_voice_and_captions(script, top_hook):
     chosen_voice = random.choice(MALE_US_VOICES)
@@ -450,7 +488,7 @@ def render_with_dynamic_fx():
         "-c:a", "aac", "-b:a", "192k", "final.mp4"
     ], check=True)
 
-def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg):
+def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist, source_hash, source_filename, start_second, source_duration):
     creds = Credentials(
         token=None,
         refresh_token=os.environ["YOUTUBE_REFRESH_TOKEN"],
@@ -471,6 +509,15 @@ def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg):
     resp = req.execute()
     vid_id = resp.get("id")
     cfg["last_video_id"] = vid_id
+    hist.setdefault("uploaded_source_windows", []).append({
+        "hash": source_hash, "source": source_filename,
+        "start_second": float(start_second), "duration": float(source_duration),
+        "video_id": vid_id,
+        "uploaded_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+    })
+    hist["uploaded_source_windows"] = hist["uploaded_source_windows"][-500:]
+    with open("history.json", "w", encoding="utf-8") as history_file:
+        json.dump(hist, history_file, indent=2)
     print("SUCCESS! Published Short ID:", vid_id)
 
     try:
@@ -498,7 +545,7 @@ if __name__ == "__main__":
         hist = json.load(open("history.json")) if os.path.exists("history.json") else {"used_windows": [], "used_topics": []}
         cfg = json.load(open("config.json")) if os.path.exists("config.json") else {"focus": "auto", "last_video_id": "", "pending_url": ""}
         focus = cfg.get("focus", "auto")
-        fname, local_clip = stream_unique_action_clips(hist, focus)
+        fname, local_clip, source_hash, start_second, source_duration = stream_unique_action_clips(hist, focus)
         title, top_hook, script, first_comment, ig_caption, tags = generate_viral_package(fname, hist, focus)
         rendered_path = render_blur_landscape_short(local_clip, script, "final.mp4")
         if not os.path.isfile(rendered_path) or os.path.getsize(rendered_path) < 100_000:
@@ -510,7 +557,7 @@ if __name__ == "__main__":
         ).strip())
         if not (1.0 < final_duration < 180.0):
             raise RuntimeError(f"Rendered Short duration is outside the expected range: {final_duration:.2f}s")
-        publish_everywhere(title, script, first_comment, ig_caption, tags, cfg)
+        publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist, source_hash, fname, start_second, source_duration)
         with open("history.json", "w", encoding="utf-8") as history_file:
             json.dump({"used_windows": hist.get("used_windows", [])[-400:],
                        "used_topics": hist.get("used_topics", [])[-100:],
