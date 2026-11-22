@@ -240,6 +240,7 @@ for line in batch:
         known = [x for x in (m_stats, p_stats) if x is not None]
         combined = (f"\n🔋 Combined known free: {sum(x[1] for x in known):.2f} GB / {sum(x[2] for x in known):.2f} GB"
                     if known else "\n🔋 Combined quota unavailable; no made-up totals shown.")
+        print(f"[storage] VERIFIED {safe_name} on {target}; remote size matches local size.")
         notify(
             f"✅ Upload verified!\n"
             f"📁 File: {safe_name} ({fsize_mb} MB)\n"
@@ -249,6 +250,7 @@ for line in batch:
             + quota_line("pCloud", p_stats, p_cnt) + combined
         )
     else:
+        print(f"[queue] Download failed for {safe_name}: {err_detail or 'unknown source error'}")
         notify(f"⚠️ Failed to transfer {safe_name}:\nReason: {err_detail}")
 
 # Remove successful entries, preserve newly queued entries, and rotate failed
