@@ -85,8 +85,9 @@ class PipelineRegressionTests(unittest.TestCase):
             boundaries = [{"text": word, "start": i * 0.3, "duration": 0.2}
                            for i, word in enumerate(script.split())]
             render_engine.build_clean_ass_captions(script, 3.0, path, boundaries)
-            content = open(path, encoding="utf-8").read()
-            self.assertIn("MarginV,1", content)
+            with open(path, encoding="utf-8") as caption_file:
+                content = caption_file.read()
+            self.assertIn(",70,70,230,1", content)
             self.assertIn("80,\\\\fscx100", content)
             self.assertIn("\\\\N", content)
             self.assertIn("Dialogue: 0,0:00:00.00,0:00:01.10", content)
