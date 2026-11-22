@@ -388,7 +388,7 @@ def generate_viral_package(fname, hist, focus):
         "Output ONLY valid JSON with keys: title, top_hook, script, first_comment, ig_caption, tags\n"
         "- title: curiosity-gap YT title under 70 chars ending with #shorts #gaming\n"
         "- top_hook: 4 to 6 words in ALL CAPS for a persistent top banner at 0:00 posing immediate stakes/curiosity (no emojis)\n"
-        "- script: EXACTLY 28 to 34 words total (fits 13.5s brisk voiceover). Start instantly with action (no intro). End mid-thought so the final word loops seamlessly back into the first word!\n"
+        "- script: EXACTLY 55 to 70 spoken words. Cover the complete selected topic with clear, natural US storytelling; start with an immediate hook, finish the explanation, and end on a complete sentence that echoes the opening idea. Never leave a sentence unfinished or cut off the topic.\n"
         "- first_comment: 1 short engaging question to pin in comments to spark debate\n"
         "- ig_caption: punchy US-targeted Instagram Reels caption with CTA (Follow for daily gaming secrets!) + 10 high-reach Tier-1 gaming hashtags\n"
         "- tags: list of 8 high-search US gaming tags without #"
