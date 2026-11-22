@@ -561,7 +561,8 @@ if __name__ == "__main__":
         with open("history.json", "w", encoding="utf-8") as history_file:
             json.dump({"used_windows": hist.get("used_windows", [])[-400:],
                        "used_topics": hist.get("used_topics", [])[-100:],
-                       "used_sources": hist.get("used_sources", [])[-100:]},
+                       "used_sources": hist.get("used_sources", [])[-100:],
+                       "uploaded_source_windows": hist.get("uploaded_source_windows", [])[-500:]},
                       history_file, indent=2)
         with open("config.json", "w", encoding="utf-8") as config_file:
             json.dump(cfg, config_file, indent=2)
