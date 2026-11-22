@@ -13,14 +13,24 @@ def notify(msg):
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg}, timeout=20)
 
 def get_cloud_stats(remote):
+    import time
+    time.sleep(2)
     try:
-        out = subprocess.check_output(["rclone", "about", f"{remote}:", "--json"], text=True, timeout=60)
-        d = json.loads(out)
+        res = subprocess.run(
+            ["rclone", "about", f"{remote}:", "--json"],
+            capture_output=True, text=True, timeout=60
+        )
+        if res.returncode != 0:
+            detail = (res.stderr or res.stdout or "unknown rclone error").strip()
+            print(f"[{remote}] rclone about failed (exit {res.returncode}): {detail[-500:]}")
+            return 0.0, 0.0, 0.0
+        d = json.loads(res.stdout)
         total = d.get("total", 0) / (1024**3)
         used = d.get("used", 0) / (1024**3)
         free = d.get("free", max(0, d.get("total", 0) - d.get("used", 0))) / (1024**3)
         return round(used, 2), round(free, 2), round(total, 2)
-    except Exception:
+    except Exception as exc:
+        print(f"[{remote}] rclone about exception: {type(exc).__name__}: {exc}")
         return 0.0, 0.0, 0.0
 
 def count_clips(remote):
