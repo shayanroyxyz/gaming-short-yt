@@ -700,7 +700,8 @@ if __name__ == "__main__":
         publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist, source_hash, fname, start_second, source_duration)
         with open("history.json", "w", encoding="utf-8") as history_file:
             json.dump({"used_windows": hist.get("used_windows", [])[-400:],
-                       "used_topics": hist.get("used_topics", [])[-100:],\n                       "recent_scripts": hist.get("recent_scripts", [])[-30:],
+                       "used_topics": hist.get("used_topics", [])[-100:],
+                       "recent_scripts": hist.get("recent_scripts", [])[-30:],
                        "used_sources": hist.get("used_sources", [])[-100:],
                        "uploaded_source_windows": hist.get("uploaded_source_windows", [])[-500:],
                        "published_source_files": hist.get("published_source_files", [])[-1000:]},
