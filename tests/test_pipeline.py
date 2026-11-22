@@ -60,20 +60,29 @@ class PipelineRegressionTests(unittest.TestCase):
             def fake_run(cmd, **kwargs):
                 with open(cmd[-1], "wb") as f:
                     f.write(b"o" * 200_000)
-                self.assertIn("-stream_loop", cmd)
-                self.assertIn("-t", cmd)
-                graph = cmd[cmd.index("-filter_complex") + 1]
-                self.assertIn("gblur=sigma=35", graph)
-                self.assertIn("scale=1080:608:force_original_aspect_ratio=decrease", graph)
-                self.assertIn("overlay=(W-w)/2:(H-h)/2", graph)
+                if "-filter_complex" in cmd:
+                    self.assertIn("-t", cmd)
+                    self.assertEqual(cmd[cmd.index("-t") + 1], "14.4")
+                    graph = cmd[cmd.index("-filter_complex") + 1]
+                    self.assertIn("concat=n=2:v=1:a=0", graph)
+                    self.assertIn("duration=7.2", graph)
+                    self.assertIn("gblur=sigma=35", graph)
+                    self.assertIn("scale=1080:608:force_original_aspect_ratio=decrease", graph)
+                    self.assertIn("overlay=(W-w)/2:(H-h)/2", graph)
+                    self.assertIn("drawtext=", graph)
+                else:
+                    self.assertIn("-filter:a", cmd)
+                    self.assertIn("atempo=1.000000", cmd)
                 return type("Result", (), {"returncode": 0})()
 
             with patch.object(render_engine, "synthesize_human_voice",
-                              return_value=(voice, 5.0, "en-US-AndrewMultilingualNeural")), \
+                              return_value=(voice, 14.05, "en-US-AndrewMultilingualNeural")), \
                  patch.object(render_engine, "build_clean_ass_captions", return_value=os.path.join(tmp, "captions.ass")), \
-                 patch.object(render_engine.subprocess, "check_output", side_effect=["30.0", "5.35"]), \
+                 patch.object(render_engine.subprocess, "check_output", side_effect=["30.0", "14.4"]), \
                  patch.object(render_engine.subprocess, "run", side_effect=fake_run):
-                result = render_engine.render_blur_landscape_short(source, "A short test script.", output)
+                result = render_engine.render_blur_landscape_short(
+                    source, "A short test script.", output, top_hook="WATCH THIS STUNT"
+                )
 
             self.assertEqual(result, output)
             self.assertTrue(os.path.isfile(output))
