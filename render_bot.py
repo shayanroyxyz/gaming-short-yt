@@ -65,6 +65,19 @@ def gh_put(path, txt, msg):
         time.sleep(0.8)
     return False
 
+def load_bot_state():
+    raw, _ = gh_get("bot_state.json")
+    try:
+        state = json.loads(raw) if raw else {}
+        return int(state.get("offset", 0)), state.get("pending", "")
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return 0, ""
+
+def save_bot_state(offset, pending):
+    payload = json.dumps({"offset": offset, "pending": pending}, indent=2)
+    if not gh_put("bot_state.json", payload, "Persist Telegram bot polling state"):
+        print("WARNING: could not persist Telegram polling state")
+
 def queue_item(cid, source, raw_name):
     safe = re.sub(r"[^a-zA-Z0-9_\[\]-]", "_", raw_name.strip())
     if not safe.endswith(".mp4"): safe += ".mp4"
@@ -105,8 +118,9 @@ requests.post(f"https://api.telegram.org/bot{TOKEN}/setMyCommands", json={"comma
     {"command": "cancel", "description": "Fold / Cancel"}
 ]}, timeout=10)
 
-requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", params={"drop_pending_updates": True}, timeout=10)
-offset, pending, seen = 0, "", set()
+requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", params={"drop_pending_updates": False}, timeout=10)
+offset, pending = load_bot_state()
+seen = set()
 
 while True:
     try:
@@ -185,4 +199,7 @@ while True:
                     send(cid, "No recent Short ID stored.", FOLDED_KB)
             else:
                 send(cid, "🎮 Control Panel (tap a button or ❌ Cancel to fold):", MAIN_KB)
-    except Exception: time.sleep(3)
+            save_bot_state(offset, pending)
+    except Exception as e:
+        print("Telegram polling error:", repr(e))
+        time.sleep(3)
