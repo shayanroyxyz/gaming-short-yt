@@ -390,8 +390,8 @@ def _parse_strict_ai_json(raw):
     if any(not isinstance(data.get(k), str) or not data[k].strip() for k in required):
         raise ValueError("AI JSON must contain non-empty hook, script, title, and comment strings")
     words = re.findall(r"\b[\w’'-]+\b", data["script"])
-    if not 55 <= len(words) <= 70:
-        raise ValueError(f"narration must contain 55–70 words; received {len(words)}")
+    if not 28 <= len(words) <= 34:
+        raise ValueError(f"narration must contain 28–34 words; received {len(words)}")
     if not re.search(r"[.!?][\"')\]]?$", data["script"].strip()):
         raise ValueError("narration must end with a complete sentence")
     return data
@@ -404,7 +404,7 @@ def generate_viral_package(fname, hist, focus):
         f"Create accurate, natural US gaming Shorts narration for {clean_name}. Focus: {focus}. "
         f"Current context: {hype_now}. Avoid repeating: [{recent_avoid}]. "
         "Return ONLY strict JSON with required keys hook, script, title, comment. "
-        "hook: 4–6 uppercase words. script: 55–70 spoken words, natural and complete, "
+        "hook: 4–6 uppercase words. script: 28–34 spoken words, natural and complete, "
         "with an immediate hook, explanation, payoff, and finished final sentence. "
         "title: under 70 characters. comment: one short audience question. "
         "Optional keys: ig_caption (string), tags (array of strings). No markdown fences."
@@ -415,7 +415,7 @@ def generate_viral_package(fname, hist, focus):
         try:
             request_prompt = prompt if attempt == 0 else (
                 prompt + " Your previous response failed validation. Return corrected JSON only; "
-                "count carefully and ensure 55–70 spoken words."
+                "count carefully and ensure 28–34 spoken words."
             )
             data = _parse_strict_ai_json(ask_ai_brain(request_prompt))
             break
@@ -426,12 +426,7 @@ def generate_viral_package(fname, hist, focus):
     if data is None:
         data = {
             "hook": "THIS GAME BREAKS THE RULES",
-            "script": (
-                "Think this game follows predictable rules? Watch what happens when the test pushes its "
-                "physics beyond the usual limits. The result reveals a detail many players overlook, "
-                "and it changes how this moment looks. The experiment has a clear payoff, so watch the "
-                "final result closely. Did the game behave exactly as you expected?"
-            ),
+            "script": "Think the city always follows the rules? Watch this stunt break the physics, then catch the tiny detail that makes the ending even more surprising than you expect.",
             "title": "This Game Breaks Its Own Rules #shorts #gaming",
             "comment": "Did you expect that result?"
         }
@@ -650,7 +645,7 @@ if __name__ == "__main__":
         focus = cfg.get("focus", "auto")
         fname, local_clip, source_hash, start_second, source_duration = stream_unique_action_clips(hist, focus)
         title, top_hook, script, first_comment, ig_caption, tags = generate_viral_package(fname, hist, focus)
-        rendered_path = render_blur_landscape_short(local_clip, script, "final.mp4")
+        rendered_path = render_blur_landscape_short(local_clip, script, "final.mp4", top_hook=top_hook)
         if not os.path.isfile(rendered_path) or os.path.getsize(rendered_path) < 100_000:
             raise RuntimeError("Render step returned without a valid final video.")
         final_duration = float(subprocess.check_output(
