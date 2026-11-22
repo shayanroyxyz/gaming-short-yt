@@ -129,8 +129,15 @@ for line in lines:
     else:
         notify(f"⚠️ Failed to transfer {safe_name}:\nReason: {err_detail}")
 
-# Remove only processed lines so new lines queued mid-run are preserved
+# Remove only successfully uploaded occurrences. Failed entries stay queued.
+# Counter preserves duplicate queue lines and avoids deleting a newly added duplicate.
 if os.path.exists("links.txt"):
     latest = [l.strip() for l in open("links.txt") if l.strip()]
-    remaining = [l for l in latest if l not in processed]
+    completed_counts = Counter(successfully_uploaded)
+    remaining = []
+    for queued_line in latest:
+        if completed_counts[queued_line] > 0:
+            completed_counts[queued_line] -= 1
+        else:
+            remaining.append(queued_line)
     open("links.txt", "w").write(("\n".join(remaining) + "\n") if remaining else "")
