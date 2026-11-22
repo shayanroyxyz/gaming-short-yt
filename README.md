@@ -61,9 +61,15 @@ Only process gameplay clips, music, images, and other material that you created,
 
 ## Public website and policies
 
-- [Project homepage](./docs/index.md)
-- [Privacy policy](./docs/privacy.md)
-- [Terms of use](./docs/terms.md)
+The free GitHub Pages site is configured to publish from the `docs/` folder:
+
+- **Project homepage:** https://shayanroyxyz.github.io/gta-shorts-agent/
+- **Privacy policy:** https://shayanroyxyz.github.io/gta-shorts-agent/privacy/
+- **Terms of use:** https://shayanroyxyz.github.io/gta-shorts-agent/terms/
+
+The site is built by `.github/workflows/pages.yml` whenever files under `docs/` change. To activate it the first time, open **Repository → Settings → Pages** and set the build and deployment source to **GitHub Actions**. Then check the **Deploy GitHub Pages** workflow in the Actions tab. The URLs above become live only after GitHub Pages is enabled and the deployment succeeds.
+
+**Google OAuth limitation:** A free `github.io` project site is useful for public documentation, but Google requires ownership verification of the homepage domain for OAuth brand verification. Do not assume the shared `github.io` domain meets that requirement. This site setup alone does not guarantee that the OAuth app can be published or verified.
 
 The policy documents describe the current repository implementation as inspected and should be updated whenever the code, providers, or data handling changes. They are informational project documents, not legal advice.
 
