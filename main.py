@@ -1,3 +1,83 @@
+# === BULLETPROOF 3-AI WATERFALL MONKEYPATCH ===
+import os as _os, requests as _req
+try:
+    from google.genai import models as _gmodels
+    _orig_gen = _gmodels.Models.generate_content
+
+    def _waterfall_generate(self, *args, **kwargs):
+        contents = kwargs.get("contents") if "contents" in kwargs else (args[1] if len(args) > 1 else "")
+        prompt_str = contents if isinstance(contents, str) else str(contents)
+
+        # 1. Try Groq first (fastest, free)
+        gk = _os.environ.get("GROQ_API_KEY", "").strip()
+        if gk:
+            try:
+                r = _req.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {gk}", "Content-Type": "application/json"},
+                    json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt_str}], "temperature": 0.85},
+                    timeout=25
+                )
+                if r.status_code == 200:
+                    t = r.json()["choices"][0]["message"]["content"].strip()
+                    if t:
+                        print(">> AI Brain Used: GROQ (llama-3.3-70b-versatile)")
+                        return type("Resp", (), {"text": t})()
+                else:
+                    print(f">> Groq status {r.status_code}: {r.text[:120]}")
+            except Exception as e:
+                print(f">> Groq error: {e}")
+
+        # 2. Try OpenRouter free models
+        ok = _os.environ.get("OPENROUTER_API_KEY", "").strip()
+        if ok:
+            for m in ["qwen/qwen-2.5-72b-instruct:free", "deepseek/deepseek-chat:free", "meta-llama/llama-3.3-70b-instruct:free"]:
+                try:
+                    r = _req.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {ok}", "Content-Type": "application/json"},
+                        json={"model": m, "messages": [{"role": "user", "content": prompt_str}]},
+                        timeout=30
+                    )
+                    if r.status_code == 200:
+                        t = r.json()["choices"][0]["message"]["content"].strip()
+                        if t:
+                            print(f">> AI Brain Used: OPENROUTER ({m})")
+                            return type("Resp", (), {"text": t})()
+                except Exception as e:
+                    print(f">> OpenRouter {m} error: {e}")
+
+        # 3. Try Gemini REST across all active models
+        gemk = _os.environ.get("GEMINI_API_KEY", "").strip()
+        if gemk:
+            for gm in ["gemini-3.8-flash", "gemini-3-flash-preview", "gemini-2.5-flash-lite", "gemini-2.0-flash"]:
+                try:
+                    r = _req.post(
+                        f"https://generativelanguage.googleapis.com/v1beta/models/{gm}:generateContent?key={gemk}",
+                        headers={"Content-Type": "application/json"},
+                        json={"contents": [{"parts": [{"text": prompt_str}]}]},
+                        timeout=25
+                    )
+                    if r.status_code == 200:
+                        t = r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                        if t:
+                            print(f">> AI Brain Used: GEMINI ({gm})")
+                            return type("Resp", (), {"text": t})()
+                    else:
+                        print(f">> Gemini {gm} status {r.status_code}: {r.text[:100]}")
+                except Exception as e:
+                    print(f">> Gemini {gm} error: {e}")
+
+        # 4. Offline emergency script fallback so pipeline NEVER crashes
+        print(">> AI Brain Used: OFFLINE FALLBACK")
+        fallback_json = '{"hook": "NOBODY SURVIVES THIS TEST", "script": "Ninety-nine percent of players think they know how this game works until you push the physics engine to its absolute limit and watch what happens next when", "title": "Insane Gaming Physics Myth Tested! #shorts #gaming", "comment": "Did you expect that ending? Comment below!"}'
+        return type("Resp", (), {"text": fallback_json})()
+
+    _gmodels.Models.generate_content = _waterfall_generate
+except Exception as _patch_err:
+    print("Monkeypatch warning:", _patch_err)
+# === END MONKEYPATCH ===
+
 
 def generate_viral_script_waterfall(prompt_text):
     import os, requests
