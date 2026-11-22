@@ -158,6 +158,9 @@ import os, re, json, time, random, asyncio, textwrap, subprocess, urllib.parse, 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from googleapiclient.errors import HttpError, ResumableUploadError
+from google.auth.transport.requests import Request
+import socket
 from google import genai
 
 MALE_US_VOICES = [
@@ -494,7 +497,44 @@ def render_with_dynamic_fx():
         "-c:a", "aac", "-b:a", "192k", "final.mp4"
     ], check=True)
 
+def _youtube_error_details(exc):
+    """Return a safe, useful API/network error without exposing credentials."""
+    if isinstance(exc, HttpError):
+        status = getattr(getattr(exc, "resp", None), "status", "unknown")
+        try:
+            payload = json.loads(exc.content.decode("utf-8", errors="replace"))
+            err = payload.get("error", {})
+            message = err.get("message", str(exc))
+            reasons = [
+                item.get("reason", "")
+                for item in err.get("errors", [])
+                if isinstance(item, dict) and item.get("reason")
+            ]
+            reason_text = ", ".join(reasons) if reasons else "no API reason supplied"
+            return f"HTTP {status}; reason={reason_text}; message={message}"
+        except Exception:
+            return f"HTTP {status}; {str(exc)}"
+    return f"{type(exc).__name__}: {str(exc)}"
+
+
+def _is_transient_youtube_upload_error(exc):
+    """Retry only temporary server/network failures, never auth or quota errors."""
+    if isinstance(exc, HttpError):
+        status = getattr(getattr(exc, "resp", None), "status", None)
+        return status in (500, 502, 503, 504)
+    if isinstance(exc, ResumableUploadError):
+        status = getattr(getattr(exc, "resp", None), "status", None)
+        return status in (500, 502, 503, 504)
+    return isinstance(
+        exc,
+        (TimeoutError, socket.timeout, ConnectionError,
+         requests.exceptions.Timeout, requests.exceptions.ConnectionError)
+    )
+
+
 def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist, source_hash, source_filename, start_second, source_duration):
+    # Refresh explicitly before creating the YouTube client. invalid_grant and
+    # revoked refresh tokens are surfaced clearly and are never retried as uploads.
     creds = Credentials(
         token=None,
         refresh_token=os.environ["YOUTUBE_REFRESH_TOKEN"],
@@ -502,23 +542,65 @@ def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist
         client_secret=os.environ["YOUTUBE_CLIENT_SECRET"],
         token_uri="https://oauth2.googleapis.com/token"
     )
+    try:
+        creds.refresh(Request())
+    except Exception as exc:
+        detail = _youtube_error_details(exc)
+        raise RuntimeError(f"YouTube OAuth token refresh failed: {detail}") from exc
+
     youtube = build("youtube", "v3", credentials=creds)
     desc = f"{script}\n\nSubscribe for daily gaming myths, physics tests, and hidden secrets!\n\n#shorts #gta6 #gta5 #minecraft #gaming #viral"
-    req = youtube.videos().insert(
-        part="snippet,status",
-        body={
-            "snippet": {"title": title, "description": desc, "tags": tags, "categoryId": "20"},
-            "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
-        },
-        media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True)
-    )
-    resp = req.execute()
-    vid_id = resp.get("id")
+    body = {
+        "snippet": {"title": title, "description": desc, "tags": tags, "categoryId": "20"},
+        "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
+    }
+
+    resp = None
+    for attempt in range(1, 4):
+        try:
+            # Recreate the resumable request for each attempt.
+            upload_request = youtube.videos().insert(
+                part="snippet,status",
+                body=body,
+                media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True)
+            )
+            resp = upload_request.execute()
+            break
+        except Exception as exc:
+            detail = _youtube_error_details(exc)
+            if attempt < 3 and _is_transient_youtube_upload_error(exc):
+                delay = 2 ** (attempt - 1)
+                print(f"YouTube upload transient failure on attempt {attempt}/3: {detail}; retrying in {delay}s")
+                time.sleep(delay)
+                continue
+            raise RuntimeError(f"YouTube upload failed on attempt {attempt}/3: {detail}") from exc
+
+    vid_id = (resp or {}).get("id")
+    if not vid_id:
+        raise RuntimeError(f"YouTube upload response did not contain a video ID: {resp!r}")
+
     cfg["last_video_id"] = vid_id
+
+    # Verify the actual server-side privacy status. This may require the
+    # youtube.readonly OAuth scope; if absent, report that exact API error.
+    privacy_status = "UNKNOWN"
+    privacy_check_detail = ""
+    try:
+        status_response = youtube.videos().list(part="status", id=vid_id).execute()
+        items = status_response.get("items", [])
+        if items:
+            privacy_status = items[0].get("status", {}).get("privacyStatus", "UNKNOWN")
+        else:
+            privacy_check_detail = "videos.list returned no item for the uploaded video ID"
+    except Exception as exc:
+        privacy_check_detail = _youtube_error_details(exc)
+        print(f"YouTube upload succeeded, but privacy verification failed: {privacy_check_detail}")
+
     hist.setdefault("uploaded_source_windows", []).append({
         "hash": source_hash, "source": source_filename,
         "start_second": float(start_second), "duration": float(source_duration),
         "video_id": vid_id,
+        "privacy_status": privacy_status,
         "uploaded_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
     })
     hist["uploaded_source_windows"] = hist["uploaded_source_windows"][-500:]
@@ -528,7 +610,10 @@ def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist
     hist["published_source_files"] = published_files[-1000:]
     with open("history.json", "w", encoding="utf-8") as history_file:
         json.dump(hist, history_file, indent=2)
-    print("SUCCESS! Published Short ID:", vid_id)
+
+    print(f"SUCCESS! Uploaded Short ID: {vid_id}; verified privacyStatus={privacy_status}")
+    if privacy_check_detail:
+        print("YouTube privacy verification detail:", privacy_check_detail)
 
     try:
         youtube.commentThreads().insert(
@@ -536,16 +621,21 @@ def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist
             body={"snippet": {"videoId": vid_id, "topLevelComment": {"snippet": {"textOriginal": first_comment}}}}
         ).execute()
     except Exception as e:
-        print("Comment post skip:", e)
+        comment_detail = _youtube_error_details(e)
+        print("Comment post skip:", comment_detail)
 
     pcloud_target = f"pcloud:Ready_Reels/{vid_id}.mp4"
     subprocess.run(["rclone", "copyto", "final.mp4", pcloud_target], check=False)
     ig_status = publish_instagram_reel(pcloud_target, ig_caption)
 
+    privacy_line = f"YouTube privacyStatus: {privacy_status}"
+    if privacy_check_detail:
+        privacy_line += f"\nPrivacy verification error: {privacy_check_detail}"
     summary = (
-        f"✅ Published New Short!\n"
+        f"✅ YouTube upload succeeded!\n"
         f"Title: {title}\n"
         f"YouTube: https://youtube.com/shorts/{vid_id}\n"
+        f"{privacy_line}\n"
         f"Instagram Reels: {ig_status}"
     )
     deliver_to_telegram(summary, "final.mp4", ig_caption)
