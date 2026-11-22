@@ -46,7 +46,7 @@ def synthesize_human_voice(script_text, out_mp3="/tmp/voice.mp3"):
     return out_mp3, dur, voice, boundaries
 
 def build_clean_ass_captions(script_text, audio_dur, out_ass="/tmp/captions.ass", word_boundaries=None):
-    words = re.findall(r"\\S+", re.sub(r"[#*_~\\[\\]()]", "", script_text).strip())
+    words = re.findall(r"\S+", re.sub(r"[#*_~\\[\\]()]", "", script_text).strip())
     if not words: raise ValueError("Cannot create captions for an empty narration script")
     chunks = [words[i:i+4] for i in range(0, len(words), 4)]
     valid_boundaries = bool(word_boundaries) and len(word_boundaries) >= len(words)
@@ -54,7 +54,7 @@ def build_clean_ass_captions(script_text, audio_dur, out_ass="/tmp/captions.ass"
         starts = [max(0.0, float(x["start"])) for x in word_boundaries[:len(words)]]
         ends = [starts[i] + max(0.01, float(word_boundaries[i].get("duration", 0))) for i in range(len(words))]
     else:
-        lengths = [max(1, len(re.sub(r"\\W", "", w))) for w in words]
+        lengths = [max(1, len(re.sub(r"\W", "", w))) for w in words]
         total, cursor, starts, ends = sum(lengths), 0, [], []
         for n in lengths:
             starts.append(audio_dur * cursor / total); cursor += n
@@ -88,7 +88,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         top, lower = chunk[0].upper(), " ".join(x.upper() for x in chunk[1:])
         text = "{\\an8\\c" + color + "\\fscx85\\fscy85\\t(0,80,\\fscx100\\fscy100)\\bord5\\shad3\\fs82}" + top + "\\N{\\fs66}" + lower
         events.append(f"Dialogue: 0,{fmt_ts(st)},{fmt_ts(en)},PopCap,,0,0,0,,{text}")
-    with open(out_ass, "w", encoding="utf-8") as f: f.write(header + "\\n".join(events) + "\\n")
+    with open(out_ass, "w", encoding="utf-8") as f: f.write(header + "\n".join(events) + "\n")
     return out_ass
 
 def render_blur_landscape_short(src_video, script_text, out_video="/tmp/final_short.mp4"):
