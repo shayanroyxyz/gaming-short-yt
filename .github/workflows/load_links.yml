@@ -14,17 +14,22 @@ concurrency:
 
 jobs:
   load-videos:
+    if: github.repository == 'shayanroyxyz/gta-shorts-agent'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ github.token }}
+          token: ${{ secrets.GH_PAT || github.token }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Install rclone, ffmpeg & Telethon
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq rclone ffmpeg curl
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg curl
+          curl --proto '=https' --tlsv1.2 -sSf https://rclone.org/install.sh | sudo bash
+          rclone version
+          rclone help backends | grep -i mega
           pip install -q requests telethon cryptg yt-dlp
       - name: Transfer Video to MEGA & pCloud
         env:
