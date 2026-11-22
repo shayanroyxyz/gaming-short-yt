@@ -1,3 +1,4 @@
+from render_engine import render_blur_landscape_short
 # === BULLETPROOF 3-AI WATERFALL MONKEYPATCH ===
 import os as _os, requests as _req
 try:
@@ -333,10 +334,7 @@ def stream_unique_action_clips(hist, focus):
                 break
 
         for idx, ts in enumerate([t1, t2]):
-            subprocess.run([
-                "ffmpeg", "-y", "-ss", str(ts), "-t", "7.2",
-                "-i", url, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-an", f"cut_{idx}.mp4"
-            ], check=True)
+            render_blur_landscape_short(local_clip, script_text, output_path)
 
         open("concat.txt", "w").write("file 'cut_0.mp4'\nfile 'cut_1.mp4'\n")
         subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "raw.mp4"], check=True)
