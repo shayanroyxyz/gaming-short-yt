@@ -429,7 +429,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         "Infer only visible events; never invent actions, outcomes, characters, or mechanics. "
         "If ambiguous, describe only what is certain. "
         f"Filename (weak hint only): {clean_name}. Focus: {focus}. Optional trend context: {hype_now}. "
-        f"Do not reuse or closely paraphrase these recent scripts:\\n{recent_avoid}\\n"
+        f"Do not reuse or closely paraphrase these recent scripts:\n{recent_avoid}\n"
         "Return ONLY valid JSON with keys hook, script, title, comment, ig_caption, tags. "
         "hook: 4-6 uppercase words. script: 28-34 spoken words, natural US English, "
         "describe visible gameplay evidence and payoff, complete final sentence. "
