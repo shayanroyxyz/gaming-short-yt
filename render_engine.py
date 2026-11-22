@@ -127,17 +127,45 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return out_ass
 
 
-def render_blur_landscape_short(src_video, script_text, out_video="/tmp/final_short.mp4"):
-    """Render a 9:16 Short with full landscape foreground and normalized narration."""
+def render_blur_landscape_short(src_video, script_text, out_video="/tmp/final_short.mp4", top_hook=""):
+    """Render a 14.4-second vertical Short from two 7.2-second gameplay cuts."""
     if not os.path.isfile(src_video) or os.path.getsize(src_video) < 100_000:
         raise RuntimeError(f"Source video is missing or too small: {src_video}")
 
     tts_result = synthesize_human_voice(script_text)
     mp3_path, audio_dur, voice_used = tts_result[:3]
     word_boundaries = tts_result[3] if len(tts_result) > 3 else None
-    target_dur = round(audio_dur + 0.35, 2)
+
+    target_dur = 14.4
+    target_audio_dur = 14.05
+    tempo = audio_dur / target_audio_dur
+    if not (0.75 <= tempo <= 1.25):
+        raise RuntimeError(
+            f"Narration duration {audio_dur:.2f}s is too far from the 14.05s audio target; "
+            "regenerate a 28–34 word script rather than heavily time-stretching the voice."
+        )
+
+    fitted_voice = "/tmp/voice_fitted.mp3"
+    subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-i", mp3_path, "-filter:a", f"atempo={tempo:.6f}",
+        "-t", str(target_audio_dur), "-c:a", "libmp3lame", "-q:a", "3",
+        fitted_voice
+    ], check=True, timeout=120)
+
+    fitted_boundaries = None
+    if word_boundaries:
+        fitted_boundaries = [
+            {
+                "text": item.get("text", ""),
+                "start": float(item.get("start", 0)) / tempo,
+                "duration": float(item.get("duration", 0)) / tempo,
+            }
+            for item in word_boundaries
+        ]
+
     ass_path = build_clean_ass_captions(
-        script_text, audio_dur, word_boundaries=word_boundaries
+        script_text, target_audio_dur, word_boundaries=fitted_boundaries
     )
 
     duration_text = subprocess.check_output([
@@ -148,29 +176,54 @@ def render_blur_landscape_short(src_video, script_text, out_video="/tmp/final_sh
     if not (1.0 < source_dur < 86400):
         raise RuntimeError(f"Source video duration is invalid: {duration_text!r}")
 
-    max_start = max(0.0, source_dur - target_dur - 0.25)
-    clip_start = round(random.uniform(0.0, max_start), 2) if max_start > 0 else 0.0
+    # Keep both cuts inside the middle 88% of the source, avoiding intro/outro regions.
+    safe_start = source_dur * 0.06
+    safe_end = source_dur * 0.94
+    max_start = safe_end - 7.2
+    if max_start < safe_start:
+        raise RuntimeError("Source video is too short for two 7.2-second cuts after intro/outro trimming.")
+
+    first_start = random.uniform(safe_start, max_start)
+    second_ranges = []
+    if first_start - 7.2 >= safe_start:
+        second_ranges.append((safe_start, first_start - 7.2))
+    if first_start + 7.2 <= max_start:
+        second_ranges.append((first_start + 7.2, max_start))
+    if second_ranges:
+        chosen_range = random.choice(second_ranges)
+        second_start = random.uniform(*chosen_range) if chosen_range[1] > chosen_range[0] else chosen_range[0]
+    else:
+        second_start = max_start if first_start <= safe_start + 0.01 else safe_start
+
+    hook_path = "/tmp/hook_banner.txt"
+    with open(hook_path, "w", encoding="utf-8") as hook_file:
+        hook_file.write(re.sub(r"\s+", " ", str(top_hook or "")).strip()[:100])
 
     filter_graph = (
-        f"[0:v]trim=start={clip_start}:duration={target_dur},setpts=PTS-STARTPTS,fps=30,split=2[bg][fg];"
+        f"[0:v]trim=start={first_start:.3f}:duration=7.2,setpts=PTS-STARTPTS,fps=30,setsar=1[cut1];"
+        f"[0:v]trim=start={second_start:.3f}:duration=7.2,setpts=PTS-STARTPTS,fps=30,setsar=1[cut2];"
+        "[cut1][cut2]concat=n=2:v=1:a=0,split=2[bg][fg];"
         "[bg]scale=1080:1920:force_original_aspect_ratio=increase,"
         "crop=1080:1920,gblur=sigma=35,eq=brightness=-0.08[bg_blur];"
         "[fg]scale=1080:608:force_original_aspect_ratio=decrease,"
         "pad=1080:608:(ow-iw)/2:(oh-ih)/2:black[fg_fit];"
-        f"[bg_blur][fg_fit]overlay=(W-w)/2:(H-h)/2,ass={ass_path}[outv]"
+        f"[bg_blur][fg_fit]overlay=(W-w)/2:(H-h)/2,"
+        f"drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+        f"textfile={hook_path}:fontcolor=white:fontsize=46:box=1:"
+        f"boxcolor=black@0.82:boxborderw=18:x=(w-text_w)/2:y=105,"
+        f"ass={ass_path}[outv]"
     )
 
     command = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-        "-stream_loop", "-1", "-i", src_video,
-        "-i", mp3_path,
+        "-i", src_video, "-i", fitted_voice,
         "-filter_complex", filter_graph,
         "-map", "[outv]", "-map", "1:a:0",
         "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
         "-t", str(target_dur),
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
         "-pix_fmt", "yuv420p", "-r", "30",
-        "-c:a", "aac", "-b:a", "192k",
+        "-c:a", "aac", "-b:a", "160k",
         "-movflags", "+faststart",
         out_video,
     ]
@@ -182,13 +235,13 @@ def render_blur_landscape_short(src_video, script_text, out_video="/tmp/final_sh
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", out_video
     ], text=True, timeout=60).strip())
-    if abs(output_duration - target_dur) > 1.0:
+    if abs(output_duration - target_dur) > 0.25:
         raise RuntimeError(
             f"Rendered duration mismatch: expected {target_dur:.2f}s, got {output_duration:.2f}s"
         )
 
     print(
         f"Rendered {output_duration:.2f}s Short with {voice_used}; "
-        "full landscape foreground, blur background, normalized voice."
+        "two 7.2s gameplay cuts, 6% intro/outro exclusion, hook banner and synced captions."
     )
     return out_video
