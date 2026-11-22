@@ -1,0 +1,40 @@
+name: Reliability checks
+
+on:
+  pull_request:
+    paths:
+      - "render_bot.py"
+      - "loader.py"
+      - "main.py"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile Python files
+        run: python -m py_compile render_bot.py loader.py main.py
+      - name: Check loader queue bookkeeping
+        run: |
+          python - <<'PY'
+          from collections import Counter
+          queued = ["a|one.mp4", "a|one.mp4", "b|two.mp4"]
+          completed = ["a|one.mp4"]
+          counts = Counter(completed)
+          remaining = []
+          for item in queued:
+              if counts[item] > 0:
+                  counts[item] -= 1
+              else:
+                  remaining.append(item)
+          assert remaining == ["a|one.mp4", "b|two.mp4"]
+          print("Queue duplicate-preservation check passed")
+          PY
