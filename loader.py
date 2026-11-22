@@ -7,6 +7,7 @@ API_ID = int(str(os.environ.get("TG_API_ID", "0")).strip() or 0)
 API_HASH = os.environ.get("TG_API_HASH", "").strip()
 RCLONE_CONF = os.environ.get("RCLONE_CONF", "").strip()
 YT_COOKIES = os.environ.get("YT_COOKIES", "").strip()
+EXPECTED_CAPACITY_GB = {"mega": 20.0, "pcloud": 10.0}  # User-reported free-plan targets; actual quota is still checked separately.
 
 def notify(msg):
     if TOKEN and CHAT_ID:
@@ -130,7 +131,17 @@ if not lines:
     exit(0)
 
 os.makedirs(os.path.expanduser("~/.config/rclone"), exist_ok=True)
+if not RCLONE_CONF:
+    notify("❌ RCLONE_CONF is missing in GitHub Actions secrets. Cloud transfer cannot start.")
+    raise SystemExit("RCLONE_CONF secret is empty")
 open(os.path.expanduser("~/.config/rclone/rclone.conf"), "w").write(RCLONE_CONF)
+listed = subprocess.run(["rclone", "listremotes"], capture_output=True, text=True, timeout=20)
+remote_names = {name.strip().rstrip(":").lower() for name in listed.stdout.splitlines()}
+print("[storage] Configured rclone remote names:", ", ".join(sorted(remote_names)) or "(none)")
+missing_remotes = {"mega", "pcloud"} - remote_names
+if missing_remotes:
+    notify("❌ RCLONE_CONF is missing remote section(s): " + ", ".join(sorted(missing_remotes)) + ". Expected [mega] and [pcloud].")
+    raise SystemExit("Required rclone remote sections missing: " + ", ".join(sorted(missing_remotes)))
 if YT_COOKIES:
     open("/tmp/cookies.txt", "w").write(YT_COOKIES)
 
@@ -217,7 +228,9 @@ for line in lines:
         m_cnt, p_cnt = count_clips("mega"), count_clips("pcloud")
         def quota_line(name, stats, count):
             if stats is None:
-                return f"• {name} ({count} visible clips): quota unavailable — check rclone remote/auth"
+                expected = EXPECTED_CAPACITY_GB.get(name.lower())
+                plan = f"{expected:.0f} GB expected plan capacity (not verified)" if expected else "plan capacity unknown"
+                return f"• {name} ({count} visible clips): {plan}; actual used/free quota unavailable"
             used, free, total = stats
             return f"• {name} ({count} visible clips): {used} GB used | {free} GB free (of {total} GB)"
         known = [x for x in (m_stats, p_stats) if x is not None]
