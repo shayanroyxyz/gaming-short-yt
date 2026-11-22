@@ -41,7 +41,7 @@ def generate_viral_script_waterfall(prompt_text):
     # Tier 3: Gemini (Multi-model auto-fallback)
     gem_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if gem_key:
-        for g_model in ["gemini-3.8-flash", "gemini-3-flash-preview", "gemini-2.5-flash-lite", "gemini-2.0-flash"]:
+        for g_model in ["gemini-3.8-flash", "gemini-3-flash-preview", "gemini-3.8-flash-lite", "gemini-2.0-flash"]:
             try:
                 r = requests.post(
                     f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={gem_key}",
