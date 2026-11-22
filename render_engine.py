@@ -1,12 +1,7 @@
 import os, re, json, math, random, subprocess, asyncio
 import edge_tts
 
-NEURAL_VOICES = [
-    "en-US-AndrewMultilingualNeural",
-    "en-US-BrianMultilingualNeural",
-    "en-US-ChristopherNeural",
-    "en-US-EricNeural"
-]
+NEURAL_VOICES = ["en-US-AndrewMultilingualNeural"]
 
 # ASS BGR color codes (&HBBGGRR&) for vibrant randomized pop captions (like "STEAL MY CAPTION STYLE")
 PALETTE_BGR = [
@@ -64,7 +59,7 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: PopCap,Arial Black,84,&H00FFFFFF&,&H000000FF&,&H00000000&,&H80000000&,-1,0,0,0,100,100,1,0,1,6,4,8,70,70,250,1
+Style: PopCap,DejaVu Sans,72,&H00FFFFFF&,&H000000FF&,&H00000000&,&H80000000&,-1,0,0,0,100,100,1,0,1,6,4,8,70,70,250,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -77,20 +72,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     events = []
     last_color = ""
+    consumed_chars = 0
     for idx, chunk in enumerate(chunks):
-        share = (len(chunk) / total_chars) * max(audio_dur - 0.1, 1.0)
-        start_t = t_cursor
-        end_t = min(audio_dur + 0.15, start_t + max(share, 0.35))
+        start_t = 0.05 + (max(0.0, audio_dur - 0.1) * consumed_chars / total_chars)
+        consumed_chars += len(chunk)
+        end_t = 0.05 + (max(0.0, audio_dur - 0.1) * consumed_chars / total_chars)
         if idx == len(chunks) - 1:
             end_t = audio_dur + 0.2
-        t_cursor = end_t
 
-        # Pick randomized color (never same twice in a row)
         choices = [c for c in PALETTE_BGR if c != last_color]
         color = random.choice(choices)
         last_color = color
 
-        # Split into 2 stacked lines if 3 words so it matches "STEAL / MY CAPTION / STYLE"
         parts = chunk.split()
         if len(parts) == 3:
             display = f"{parts[0]}\\N{parts[1]} {parts[2]}"
