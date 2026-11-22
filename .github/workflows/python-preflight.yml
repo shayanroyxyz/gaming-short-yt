@@ -1,5 +1,15 @@
 name: Python Safety Preflight
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "main.py"
+      - "render_engine.py"
+      - "loader.py"
+      - "render_bot.py"
+      - "tests/**"
+      - "requirements.txt"
+      - ".github/workflows/python-preflight.yml"
   push:
     branches: [main]
     paths:
