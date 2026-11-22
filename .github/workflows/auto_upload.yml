@@ -23,6 +23,21 @@ jobs:
           python-version: '3.11'
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core rclone
       - run: pip install -q -r requirements.txt
+      - name: Drain pending Telegram and URL queue before rendering
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+        run: |
+          if [ -s links.txt ] && grep -q '|' links.txt; then
+            python -m pip install -q telethon cryptg yt-dlp
+            python loader.py
+          else
+            echo "No queued links to drain."
+          fi
       - env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -41,14 +56,15 @@ jobs:
       - run: |
           git config user.name "AutoBot"
           git config user.email "bot@users.noreply.github.com"
-          touch history.json config.json
-          git add history.json config.json
+          touch history.json config.json links.txt
+          git add history.json config.json links.txt
           if ! git diff --cached --quiet; then
             git commit -m "Log clip history & last video"
           fi
+          BRANCH="${GITHUB_REF_NAME}"
           for attempt in 1 2 3; do
-            git pull --rebase --autostash origin main || { git rebase --abort || true; sleep 3; continue; }
-            if git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git; then
+            git pull --rebase --autostash origin "$BRANCH" || { git rebase --abort || true; sleep 3; continue; }
+            if git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git "HEAD:$BRANCH"; then
               exit 0
             fi
             sleep 3
