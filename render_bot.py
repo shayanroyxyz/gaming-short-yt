@@ -96,7 +96,7 @@ def queue_item(cid, source, raw_name):
     safe = safe_video_filename(raw_name)
     ok = gh_append_line("links.txt", f"{source} | {safe}", f"Queue {safe}")
     if ok:
-        send(cid, f"✅ Queued ({safe})!\n☁️ GitHub Loader is uploading to MEGA/pCloud now (menu folded).", FOLDED_KB)
+        send(cid, f"✅ Queued ({safe})!\n⏳ Waiting for the next GitHub workflow run. Use 🚀 Make Short Now or /make to start the pipeline now.", FOLDED_KB)
     else:
         send(cid, f"⚠️ GitHub busy — tap the tag again for {safe}.", TAG_KB)
 
