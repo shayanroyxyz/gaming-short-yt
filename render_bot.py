@@ -36,7 +36,15 @@ def send(cid, text, kb=MAIN_KB):
     requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": cid, "text": text, "reply_markup": json.dumps(kb)}, timeout=15)
 
 def trigger_wf(wf):
-    requests.post(f"https://api.github.com/repos/{REPO}/actions/workflows/{wf}/dispatches", headers=GH_HEADERS, json={"ref": "main"}, timeout=15)
+    try:
+        response = requests.post(
+            f"https://api.github.com/repos/{REPO}/actions/workflows/{wf}/dispatches",
+            headers=GH_HEADERS, json={"ref": "main"}, timeout=20
+        )
+        return response.status_code == 204
+    except requests.RequestException as exc:
+        print("Workflow dispatch failed:", repr(exc))
+        return False
 
 def gh_get(path):
     r = requests.get(f"https://api.github.com/repos/{REPO}/contents/{path}", headers=GH_HEADERS, timeout=15)
@@ -65,9 +73,27 @@ def gh_put(path, txt, msg):
         time.sleep(0.8)
     return False
 
+def load_bot_state():
+    raw, _ = gh_get("bot_state.json")
+    try:
+        state = json.loads(raw) if raw else {}
+        return int(state.get("offset", 0)), state.get("pending", "")
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return 0, ""
+
+def save_bot_state(offset, pending):
+    payload = json.dumps({"offset": offset, "pending": pending}, indent=2)
+    if not gh_put("bot_state.json", payload, "Persist Telegram bot polling state"):
+        print("WARNING: could not persist Telegram polling state")
+
+def safe_video_filename(raw_name):
+    stem, ext = os.path.splitext(str(raw_name).strip())
+    safe_stem = re.sub(r"[^a-zA-Z0-9_\[\]-]+", "_", stem).strip("_") or "clip"
+    safe_ext = ext.lower() if ext.lower() in (".mp4", ".mkv", ".webm") else ".mp4"
+    return safe_stem + safe_ext
+
 def queue_item(cid, source, raw_name):
-    safe = re.sub(r"[^a-zA-Z0-9_\[\]-]", "_", raw_name.strip())
-    if not safe.endswith(".mp4"): safe += ".mp4"
+    safe = safe_video_filename(raw_name)
     ok = gh_append_line("links.txt", f"{source} | {safe}", f"Queue {safe}")
     if ok:
         send(cid, f"✅ Queued ({safe})!\n☁️ GitHub Loader is uploading to MEGA/pCloud now (menu folded).", FOLDED_KB)
@@ -105,8 +131,9 @@ requests.post(f"https://api.telegram.org/bot{TOKEN}/setMyCommands", json={"comma
     {"command": "cancel", "description": "Fold / Cancel"}
 ]}, timeout=10)
 
-requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", params={"drop_pending_updates": True}, timeout=10)
-offset, pending, seen = 0, "", set()
+requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", params={"drop_pending_updates": False}, timeout=10)
+offset, pending = load_bot_state()
+seen = set()
 
 while True:
     try:
@@ -138,10 +165,13 @@ while True:
                 else:
                     pending = src
                     send(cid, f"🎥 Video received ({sz} MB)!\nTap a game tag below (or type a custom name):", TAG_KB)
+                save_bot_state(offset, pending)
                 continue
 
             text = (msg.get("text") or "").strip()
-            if not text: continue
+            if not text:
+                save_bot_state(offset, pending)
+                continue
 
             if text in ["❌ Cancel", "/cancel"]:
                 pending = ""
@@ -158,7 +188,11 @@ while True:
                 queue_item(cid, pending, f"[{tmap[text]}]_Clip_{int(time.time()) % 10000}.mp4" if text in tmap else text)
                 pending = ""
             elif text == "➕ Add Video Link": send(cid, "📎 Forward a video from @gozillabot_downloaderbot_bot, upload from Snaptube, or paste a YouTube link!", FOLDED_KB)
-            elif text in ["🚀 Make Short Now", "/make"]: trigger_wf("auto_upload.yml"); send(cid, "🚀 Triggered! Publishing to YT, IG Reels & Telegram in ~60s.", FOLDED_KB)
+            elif text in ["🚀 Make Short Now", "/make"]:
+                if trigger_wf("auto_upload.yml"):
+                    send(cid, "🚀 Workflow accepted by GitHub. I will report the actual publish result when the run finishes.", FOLDED_KB)
+                else:
+                    send(cid, "⚠️ GitHub did not accept the workflow request. Check the GH_PAT Actions permission and GitHub Actions status.", FOLDED_KB)
             elif text in ["🎯 Focus: GTA 6", "🎯 Focus: Auto"]:
                 val = "gta6" if "GTA 6" in text else "auto"
                 cur, _ = gh_get("config.json")
@@ -185,4 +219,7 @@ while True:
                     send(cid, "No recent Short ID stored.", FOLDED_KB)
             else:
                 send(cid, "🎮 Control Panel (tap a button or ❌ Cancel to fold):", MAIN_KB)
-    except Exception: time.sleep(3)
+            save_bot_state(offset, pending)
+    except Exception as e:
+        print("Telegram polling error:", repr(e))
+        time.sleep(3)

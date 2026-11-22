@@ -60,9 +60,10 @@ processed = set()
 for line in lines:
     
     src, fname = [x.strip() for x in line.split("|", 1)]
-    safe_name = re.sub(r"[^a-zA-Z0-9_\[\]-]", "_", fname)
-    if not safe_name.endswith(".mp4"):
-        safe_name += ".mp4"
+    stem, ext = os.path.splitext(fname)
+    safe_stem = re.sub(r"[^a-zA-Z0-9_\[\]-]+", "_", stem).strip("_") or "clip"
+    safe_ext = ext.lower() if ext.lower() in (".mp4", ".mkv", ".webm") else ".mp4"
+    safe_name = safe_stem + safe_ext
     local_file = f"/tmp/{safe_name}"
     if os.path.exists(local_file):
         os.remove(local_file)
