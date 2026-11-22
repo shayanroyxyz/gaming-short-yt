@@ -43,10 +43,10 @@ def get_cloud_stats(remote):
         if int(total_bytes) <= 0 or int(free_bytes) < 0:
             print(f"[{remote}] quota response invalid: {data}")
             return None
-        gib = 1024 ** 3
-        return (round(int(used_bytes) / gib, 2),
-                round(int(free_bytes) / gib, 2),
-                round(int(total_bytes) / gib, 2))
+        gb = 1_000_000_000
+        return (round(int(used_bytes) / gb, 2),
+                round(int(free_bytes) / gb, 2),
+                round(int(total_bytes) / gb, 2))
     except Exception as exc:
         print(f"[{remote}] quota lookup exception: {type(exc).__name__}: {exc}")
         return None
@@ -128,13 +128,16 @@ for line in lines:
 
     ok = False
     err_detail = ""
+    print(f"[queue] Processing {safe_name} from {src.split(':', 1)[0]}")
     if src.startswith("tgmsg:"):
         if not API_ID or not API_HASH:
             err_detail = "TG_API_ID or TG_API_HASH secret missing in GitHub"
         else:
             try:
                 _, c_str, m_str = src.split(":")
-                ok, err_detail = asyncio.run(download_tg_msg(int(c_str), int(m_str), local_file))
+                ok, err_detail = asyncio.run(asyncio.wait_for(
+                    download_tg_msg(int(c_str), int(m_str), local_file), timeout=480
+                ))
             except Exception as e:
                 err_detail = str(e)
     elif src.startswith("http"):
@@ -142,10 +145,13 @@ for line in lines:
         cmd = ["yt-dlp", "-f", "best[height<=720][ext=mp4]/best[height<=720]", "--no-playlist", "-o", local_file, src]
         if YT_COOKIES:
             cmd[1:1] = ["--cookies", "/tmp/cookies.txt"]
-        res = subprocess.run(cmd, capture_output=True, text=True)
-        ok = os.path.exists(local_file) and os.path.getsize(local_file) > 500000
-        if not ok:
-            err_detail = (res.stderr or "YouTube IP blocked")[-140:].strip()
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=480)
+            ok = os.path.exists(local_file) and os.path.getsize(local_file) > 500000
+            if not ok:
+                err_detail = (res.stderr or "Download did not produce a usable video")[-180:].strip()
+        except subprocess.TimeoutExpired:
+            err_detail = "Source download exceeded the 8-minute safety limit; item remains queued."
 
     if ok:
         fsize_mb = round(os.path.getsize(local_file) / (1024**2), 1)
@@ -167,8 +173,10 @@ for line in lines:
         target = random.choice(candidates)
         upload_result = None
         for destination in [target] + [r for r in candidates if r != target]:
+            print(f"[storage] Uploading {safe_name} to {destination}; source size {fsize_mb} MB.")
             attempt = subprocess.run(
-                ["rclone", "copyto", local_file, f"{destination}:GTA_Clips/{safe_name}"],
+                ["rclone", "copyto", local_file, f"{destination}:GTA_Clips/{safe_name}",
+                 "--retries", "2", "--low-level-retries", "3", "--stats", "15s"],
                 capture_output=True, text=True, timeout=600
             )
             if attempt.returncode == 0 and verify_uploaded_file(
