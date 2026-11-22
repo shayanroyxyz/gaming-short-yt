@@ -107,16 +107,8 @@ async def download_tg_msg(cid, mid, out_path, label="video"):
         msg = await client.get_messages(cid, ids=mid)
         if not msg or not msg.media:
             return False, "Message or video not found in chat"
-        last_report = [-1]
-        def progress(current, total):
-            if not total:
-                return
-            pct = int(current * 100 / total)
-            bucket = min(100, (pct // 20) * 20)
-            if bucket > last_report[0] or pct >= 100:
-                last_report[0] = bucket
-                notify(f"⬇️ Downloading {label}: {pct}% ({current // 1048576}/{total // 1048576} MB)")
-        await client.download_media(msg, file=out_path, progress_callback=progress)
+        # Deliberately no per-20% progress messages; keep Telegram quiet.
+        await client.download_media(msg, file=out_path)
         if os.path.exists(out_path) and os.path.getsize(out_path) > 100000:
             return True, ""
         return False, "Downloaded file empty"
@@ -170,7 +162,8 @@ for line in batch:
         else:
             try:
                 _, c_str, m_str = src.split(":")
-                notify(f"⬇️ Starting Telegram download: {safe_name}")
+                if len(lines) > 1:
+                    notify(f"⬇️ Starting download: {safe_name}")
                 ok, err_detail = asyncio.run(asyncio.wait_for(
                     download_tg_msg(int(c_str), int(m_str), local_file, safe_name), timeout=660
                 ))
@@ -184,7 +177,8 @@ for line in batch:
         if YT_COOKIES:
             cmd[1:1] = ["--cookies", "/tmp/cookies.txt"]
         try:
-            notify(f"⬇️ Starting source download: {safe_name}")
+            if len(lines) > 1:
+                notify(f"⬇️ Starting download: {safe_name}")
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=660)
             ok = os.path.exists(local_file) and os.path.getsize(local_file) > 500000
             if not ok:
@@ -205,7 +199,6 @@ for line in batch:
         upload_result = None
         for destination in [target] + [r for r in candidates if r != target]:
             print(f"[storage] Uploading {safe_name} to {destination}; source size {fsize_mb} MB.")
-            notify(f"☁️ Uploading {safe_name} to {destination.upper()} ({fsize_mb} MB).")
             attempt = subprocess.run(
                 ["rclone", "copyto", local_file, f"{destination}:GTA_Clips/{safe_name}",
                  "--retries", "2", "--low-level-retries", "3", "--stats", "15s"],
@@ -226,7 +219,6 @@ for line in batch:
 
         processed.add(line)
         os.remove(local_file)
-        notify(f"🔎 Upload finished; verifying {safe_name} and checking available quota.")
         m_stats = get_cloud_stats("mega")
         p_stats = get_cloud_stats("pcloud")
         m_cnt, p_cnt = count_clips("mega"), count_clips("pcloud")
@@ -263,8 +255,3 @@ if os.path.exists("links.txt"):
     untouched = [line for line in remaining if line not in attempted]
     ordered = untouched + deferred
     open("links.txt", "w").write(("\n".join(ordered) + "\n") if ordered else "")
-    if deferred:
-        notify(
-            f"⏭️ Deferred {len(deferred)} item(s) that failed this run. "
-            f"They remain queued behind {len(untouched)} untouched item(s); nothing was deleted."
-        )
