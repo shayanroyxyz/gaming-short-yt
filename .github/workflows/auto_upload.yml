@@ -1,5 +1,10 @@
 name: 24/7 US Viral Gaming Shorts + IG Reels (6x Daily)
 on:
+  # Process Telegram/URL queue as soon as the bot commits a new queue entry.
+  push:
+    branches: [main]
+    paths:
+      - links.txt
   # Six daily runs at 9 AM, 12 PM, 3 PM, 6 PM, 9 PM and 12 AM
   # US Eastern time. IANA timezone keeps these local times aligned across DST.
   schedule:
