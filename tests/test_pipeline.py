@@ -89,7 +89,7 @@ class PipelineRegressionTests(unittest.TestCase):
             self.assertIn("MarginV,1", content)
             self.assertIn("80,\\\\fscx100", content)
             self.assertIn("\\\\N", content)
-            self.assertIn("Dialogue: 0,0:00:00.00,0:00:00.00", content)
+            self.assertIn("Dialogue: 0,0:00:00.00,0:00:01.10", content)
 
 
 if __name__ == "__main__":
