@@ -47,7 +47,7 @@ class PipelineRegressionTests(unittest.TestCase):
         if os.path.exists(old_clip):
             os.remove(old_clip)
 
-    def test_renderer_builds_full_frame_blur_background_and_exact_duration(self):
+    def test_renderer_builds_full_bleed_vertical_crop_and_exact_duration(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = os.path.join(tmp, "source.mp4")
             voice = os.path.join(tmp, "voice.mp3")
@@ -66,9 +66,11 @@ class PipelineRegressionTests(unittest.TestCase):
                     graph = cmd[cmd.index("-filter_complex") + 1]
                     self.assertIn("concat=n=2:v=1:a=0", graph)
                     self.assertIn("duration=7.2", graph)
-                    self.assertIn("gblur=sigma=35", graph)
-                    self.assertIn("scale=1080:608:force_original_aspect_ratio=decrease", graph)
-                    self.assertIn("overlay=(W-w)/2:(H-h)/2", graph)
+                    self.assertIn("scale=1080:1920:force_original_aspect_ratio=increase", graph)
+                    self.assertIn("crop=1080:1920", graph)
+                    self.assertNotIn("gblur=", graph)
+                    self.assertNotIn("pad=1080:608", graph)
+                    self.assertNotIn("overlay=(W-w)/2:(H-h)/2", graph)
                     self.assertIn("drawtext=", graph)
                 else:
                     self.assertIn("-filter:a", cmd)
@@ -80,7 +82,7 @@ class PipelineRegressionTests(unittest.TestCase):
                  patch.object(render_engine, "build_clean_ass_captions", return_value=os.path.join(tmp, "captions.ass")), \
                  patch.object(render_engine.subprocess, "check_output", side_effect=["30.0", "14.4"]), \
                  patch.object(render_engine.subprocess, "run", side_effect=fake_run):
-                result = render_engine.render_blur_landscape_short(
+                result = render_engine.render_full_bleed_short(
                     source, "A short test script.", output, top_hook="WATCH THIS STUNT"
                 )
 
