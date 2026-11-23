@@ -137,7 +137,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     word_boundaries = tts_result[3] if len(tts_result) > 3 else None
 
     # Match the video to the real TTS duration instead of forcing every script
-    # into a fixed 14-second window. This prevents valid 52–56 word narration
+    # into a fixed 14-second window. This prevents valid long or short narration
     # from being rejected or unnaturally time-stretched.
     target_audio_dur = audio_dur
     target_dur = target_audio_dur + 0.35
