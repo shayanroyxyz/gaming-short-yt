@@ -136,21 +136,19 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     mp3_path, audio_dur, voice_used = tts_result[:3]
     word_boundaries = tts_result[3] if len(tts_result) > 3 else None
 
-    target_dur = 14.4
-    target_audio_dur = 14.05
-    tempo = audio_dur / target_audio_dur
-    if not (0.75 <= tempo <= 1.25):
-        raise RuntimeError(
-            f"Narration duration {audio_dur:.2f}s is too far from the 14.05s audio target; "
-            "regenerate a 52–56 word script rather than heavily time-stretching the voice."
-        )
+    # Match the video to the real TTS duration instead of forcing every script
+    # into a fixed 14-second window. This prevents valid 52–56 word narration
+    # from being rejected or unnaturally time-stretched.
+    target_audio_dur = audio_dur
+    target_dur = target_audio_dur + 0.35
+    segment_dur = target_dur / 2.0
+    tempo = 1.0
 
     fitted_voice = "/tmp/voice_fitted.mp3"
     subprocess.run([
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-        "-i", mp3_path, "-filter:a", f"atempo={tempo:.6f}",
-        "-t", str(target_audio_dur), "-c:a", "libmp3lame", "-q:a", "3",
-        fitted_voice
+        "-i", mp3_path, "-t", str(target_audio_dur),
+        "-c:a", "libmp3lame", "-q:a", "3", fitted_voice
     ], check=True, timeout=120)
 
     fitted_boundaries = None
@@ -176,19 +174,22 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     if not (1.0 < source_dur < 86400):
         raise RuntimeError(f"Source video duration is invalid: {duration_text!r}")
 
-    # Keep both cuts inside the middle 88% of the source, avoiding intro/outro regions.
+    # Keep two distinct gameplay cuts inside the middle 88% of the source.
     safe_start = source_dur * 0.06
     safe_end = source_dur * 0.94
-    max_start = safe_end - 7.2
+    max_start = safe_end - segment_dur
     if max_start < safe_start:
-        raise RuntimeError("Source video is too short for two 7.2-second cuts after intro/outro trimming.")
+        raise RuntimeError(
+            f"Source video is too short for two {segment_dur:.2f}-second gameplay cuts "
+            "after intro/outro trimming."
+        )
 
     first_start = random.uniform(safe_start, max_start)
     second_ranges = []
-    if first_start - 7.2 >= safe_start:
-        second_ranges.append((safe_start, first_start - 7.2))
-    if first_start + 7.2 <= max_start:
-        second_ranges.append((first_start + 7.2, max_start))
+    if first_start - segment_dur >= safe_start:
+        second_ranges.append((safe_start, first_start - segment_dur))
+    if first_start + segment_dur <= max_start:
+        second_ranges.append((first_start + segment_dur, max_start))
     if second_ranges:
         chosen_range = random.choice(second_ranges)
         second_start = random.uniform(*chosen_range) if chosen_range[1] > chosen_range[0] else chosen_range[0]
@@ -200,8 +201,8 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         hook_file.write(re.sub(r"\s+", " ", str(top_hook or "")).strip()[:100])
 
     filter_graph = (
-        f"[0:v]trim=start={first_start:.3f}:duration=7.2,setpts=PTS-STARTPTS,fps=30,setsar=1[cut1];"
-        f"[0:v]trim=start={second_start:.3f}:duration=7.2,setpts=PTS-STARTPTS,fps=30,setsar=1[cut2];"
+        f"[0:v]trim=start={first_start:.3f}:duration={segment_dur:.3f},setpts=PTS-STARTPTS,fps=30,setsar=1[cut1];"
+        f"[0:v]trim=start={second_start:.3f}:duration={segment_dur:.3f},setpts=PTS-STARTPTS,fps=30,setsar=1[cut2];"
         "[cut1][cut2]concat=n=2:v=1:a=0[game];"
         "[game]scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,"
         "crop=1080:1920:(iw-ow)/2:(ih-oh)/2,"
@@ -240,6 +241,6 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
 
     print(
         f"Rendered {output_duration:.2f}s Short with {voice_used}; "
-        "two 7.2s gameplay cuts, full-bleed 9:16 crop, 6% intro/outro exclusion, hook banner and synced captions."
+        f"two {segment_dur:.2f}s gameplay cuts, full-bleed 9:16 crop, 6% intro/outro exclusion, hook banner and synced captions."
     )
     return out_video
