@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   run-bot:
-    if: github.repository == 'shayanroyxyz/gta-shorts-agent'
+    if: github.repository == 'shayanroyxyz/gaming-short-yt'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -90,6 +90,7 @@ jobs:
             git commit -m "Log clip history & last video"
           fi
           BRANCH="${GITHUB_REF_NAME}"
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           for attempt in 1 2 3; do
             git pull --rebase --autostash origin "$BRANCH" || { git rebase --abort || true; sleep 3; continue; }
             if git push origin "HEAD:$BRANCH"; then
