@@ -388,8 +388,8 @@ def _parse_strict_ai_json(raw):
     if any(not isinstance(data.get(k), str) or not data[k].strip() for k in required):
         raise ValueError("AI JSON must contain non-empty hook, script, title, and comment strings")
     words = re.findall(r"\b[\w’'-]+\b", data["script"])
-    if not 52 <= len(words) <= 56:
-        raise ValueError(f"narration must contain 52–56 words; received {len(words)}")
+    if not 32 <= len(words) <= 38:
+        raise ValueError(f"narration must contain 32–38 words; received {len(words)}")
     if not re.search(r"[.!?][\"')\]]?$", data["script"].strip()):
         raise ValueError("narration must end with a complete sentence")
     return data
@@ -431,7 +431,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         f"Filename (weak hint only): {clean_name}. Focus: {focus}. Optional trend context: {hype_now}. "
         f"Do not reuse or closely paraphrase these recent scripts:\n{recent_avoid}\n"
         "Return ONLY valid JSON with keys hook, script, title, comment, ig_caption, tags. "
-        "hook: 4-6 uppercase words. script: 52-56 spoken words, natural US English, "
+        "hook: 4-6 uppercase words. script: 32-38 spoken words, natural US English, "
         "describe visible gameplay evidence and payoff, complete final sentence. "
         "Avoid generic filler. title under 70 characters; comment one short question; "
         "ig_caption short; tags array. No markdown fences."
