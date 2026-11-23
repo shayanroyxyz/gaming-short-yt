@@ -142,7 +142,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     if not (0.75 <= tempo <= 1.25):
         raise RuntimeError(
             f"Narration duration {audio_dur:.2f}s is too far from the 14.05s audio target; "
-            "regenerate a 28–34 word script rather than heavily time-stretching the voice."
+            "regenerate a 38–42 word script rather than heavily time-stretching the voice."
         )
 
     fitted_voice = "/tmp/voice_fitted.mp3"
