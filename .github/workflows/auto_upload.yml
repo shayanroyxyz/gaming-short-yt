@@ -1,5 +1,10 @@
 name: 24/7 US Viral Gaming Shorts + IG Reels (6x Daily)
 on:
+  # Temporary one-shot manual run: only a render_engine.py push triggers it.
+  push:
+    branches: [main]
+    paths:
+      - 'render_engine.py'
   # Six daily runs at 9 AM, 12 PM, 3 PM, 6 PM, 9 PM and 12 AM
   # US Eastern time. IANA timezone keeps these local times aligned across DST.
   schedule:
