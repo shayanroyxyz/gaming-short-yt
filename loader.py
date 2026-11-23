@@ -172,7 +172,9 @@ for line in batch:
     elif src.startswith("http"):
         # yt-dlp is installed once by the workflow, not for every queued item.
         cmd = ["yt-dlp", "--no-warnings", "--retries", "3", "--fragment-retries", "3",
-               "--concurrent-fragments", "4", "-f", "best[height<=720][ext=mp4]/best[height<=720]",
+               "--concurrent-fragments", "4", "--force-ipv4",
+               "--extractor-args", "youtube:player_client=ios,android,web_embedded,tv",
+               "-f", "best[height<=720][ext=mp4]/best[height<=720]",
                "--no-playlist", "-o", local_file, src]
         if YT_COOKIES:
             cmd[1:1] = ["--cookies", "/tmp/cookies.txt"]
@@ -182,7 +184,13 @@ for line in batch:
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=660)
             ok = os.path.exists(local_file) and os.path.getsize(local_file) > 500000
             if not ok:
-                err_detail = (res.stderr or "Download did not produce a usable video")[-180:].strip()
+                err_detail = (res.stderr or "Download did not produce a usable video")[-1200:].strip()
+                lowered = err_detail.lower()
+                permanent_markers = ("video unavailable", "private video", "has been removed", "no longer available", "unsupported url", "http error 404", "404 not found")
+                if any(marker in lowered for marker in permanent_markers):
+                    processed.add(line)
+                    print(f"[queue] Permanently unavailable source removed from queue: {safe_name}")
+                    notify(f"🗑️ Removed dead/unavailable source from queue: {safe_name}\nReason: {err_detail[-300:]}")
         except subprocess.TimeoutExpired:
             err_detail = "Source download exceeded the 11-minute safety limit; item remains queued for retry."
 
