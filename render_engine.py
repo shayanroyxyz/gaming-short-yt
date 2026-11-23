@@ -127,7 +127,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return out_ass
 
 
-def render_blur_landscape_short(src_video, script_text, out_video="/tmp/final_short.mp4", top_hook=""):
+def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.mp4", top_hook=""):
     """Render a 14.4-second vertical Short from two 7.2-second gameplay cuts."""
     if not os.path.isfile(src_video) or os.path.getsize(src_video) < 100_000:
         raise RuntimeError(f"Source video is missing or too small: {src_video}")
@@ -202,12 +202,10 @@ def render_blur_landscape_short(src_video, script_text, out_video="/tmp/final_sh
     filter_graph = (
         f"[0:v]trim=start={first_start:.3f}:duration=7.2,setpts=PTS-STARTPTS,fps=30,setsar=1[cut1];"
         f"[0:v]trim=start={second_start:.3f}:duration=7.2,setpts=PTS-STARTPTS,fps=30,setsar=1[cut2];"
-        "[cut1][cut2]concat=n=2:v=1:a=0,split=2[bg][fg];"
-        "[bg]scale=1080:1920:force_original_aspect_ratio=increase,"
-        "crop=1080:1920,gblur=sigma=35,eq=brightness=-0.08[bg_blur];"
-        "[fg]scale=1080:608:force_original_aspect_ratio=decrease,"
-        "pad=1080:608:(ow-iw)/2:(oh-ih)/2:black[fg_fit];"
-        f"[bg_blur][fg_fit]overlay=(W-w)/2:(H-h)/2,"
+        "[cut1][cut2]concat=n=2:v=1:a=0[game];"
+        "[game]scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,"
+        "crop=1080:1920:(iw-ow)/2:(ih-oh)/2,"
+        "unsharp=5:5:0.8:5:5:0.0,"
         f"drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
         f"textfile={hook_path}:fontcolor=white:fontsize=46:box=1:"
         f"boxcolor=black@0.82:boxborderw=18:x=(w-text_w)/2:y=105,"
@@ -242,6 +240,6 @@ def render_blur_landscape_short(src_video, script_text, out_video="/tmp/final_sh
 
     print(
         f"Rendered {output_duration:.2f}s Short with {voice_used}; "
-        "two 7.2s gameplay cuts, 6% intro/outro exclusion, hook banner and synced captions."
+        "two 7.2s gameplay cuts, full-bleed 9:16 crop, 6% intro/outro exclusion, hook banner and synced captions."
     )
     return out_video
