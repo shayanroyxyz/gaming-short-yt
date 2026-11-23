@@ -1,4 +1,4 @@
-from render_engine import render_blur_landscape_short
+from render_engine import render_full_bleed_short
 # === BULLETPROOF 3-AI WATERFALL MONKEYPATCH ===
 import os as _os, requests as _req
 try:
@@ -688,7 +688,7 @@ if __name__ == "__main__":
         focus = cfg.get("focus", "auto")
         fname, local_clip, source_hash, start_second, source_duration = stream_unique_action_clips(hist, focus)
         title, top_hook, script, first_comment, ig_caption, tags = generate_viral_package(fname, hist, focus, local_clip)
-        rendered_path = render_blur_landscape_short(local_clip, script, "final.mp4", top_hook=top_hook)
+        rendered_path = render_full_bleed_short(local_clip, script, "final.mp4", top_hook=top_hook)
         if not os.path.isfile(rendered_path) or os.path.getsize(rendered_path) < 100_000:
             raise RuntimeError("Render step returned without a valid final video.")
         final_duration = float(subprocess.check_output(
