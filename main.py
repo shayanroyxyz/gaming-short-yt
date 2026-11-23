@@ -518,7 +518,7 @@ async def build_voice_and_captions(script, top_hook):
 def render_with_dynamic_fx():
     cap_style = random.choice(CAPTION_STYLES)
     vf = (
-        "[0:v]setpts=0.95*PTS,scale=1240:2200:flags=lanczos:force_original_aspect_ratio=increase,"
+        "[0:v]setpts=0.95*PTS,scale=1080:1920:flags=lanczos:force_original_aspect_ratio=increase,setsar=1,"
         "crop=1080:1920:x='(iw-ow)/2+15*sin(t*2)':y='(ih-oh)/2',"
         "unsharp=5:5:0.9:5:5:0.0,eq=contrast=1.10:saturation=1.18,"
         "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=hook.txt:"
