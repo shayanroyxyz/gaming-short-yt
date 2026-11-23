@@ -187,7 +187,18 @@ for line in batch:
                 err_detail = (res.stderr or "Download did not produce a usable video")[-1200:].strip()
                 lowered = err_detail.lower()
                 permanent_markers = ("video unavailable", "private video", "has been removed", "no longer available", "unsupported url", "http error 404", "404 not found")
-                if any(marker in lowered for marker in permanent_markers):
+                bot_block_markers = ("sign in to confirm you", "confirm you’re not a bot", "confirm you're not a bot", "not a bot")
+                if any(marker in lowered for marker in bot_block_markers):
+                    # A datacenter-IP bot challenge will not improve through retries.
+                    # Remove it after one attempt and explain legitimate alternatives.
+                    processed.add(line)
+                    print(f"[queue] Removed bot-challenged YouTube source after one attempt: {safe_name}")
+                    notify(
+                        f"⛔ Removed {safe_name} from the queue after one YouTube anti-bot challenge.\n"
+                        "Use a gameplay file you own or have permission to use and place it in MEGA/pCloud, "
+                        "or configure your own YT_COOKIES GitHub secret. This URL will not be retried."
+                    )
+                elif any(marker in lowered for marker in permanent_markers):
                     processed.add(line)
                     print(f"[queue] Permanently unavailable source removed from queue: {safe_name}")
                     notify(f"🗑️ Removed dead/unavailable source from queue: {safe_name}\nReason: {err_detail[-300:]}")
