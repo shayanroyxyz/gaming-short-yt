@@ -619,20 +619,24 @@ def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist
 
     cfg["last_video_id"] = vid_id
 
-    # Verify the actual server-side privacy status. This may require the
-    # youtube.readonly OAuth scope; if absent, report that exact API error.
-    privacy_status = "UNKNOWN"
+    # The videos.insert response requested part="snippet,status" and normally
+    # includes the accepted privacy status. Use that as the first verification
+    # source; videos.list may be unavailable when OAuth lacks youtube.readonly.
+    privacy_status = (resp or {}).get("status", {}).get("privacyStatus", "UNKNOWN")
     privacy_check_detail = ""
     try:
         status_response = youtube.videos().list(part="status", id=vid_id).execute()
         items = status_response.get("items", [])
         if items:
-            privacy_status = items[0].get("status", {}).get("privacyStatus", "UNKNOWN")
-        else:
-            privacy_check_detail = "videos.list returned no item for the uploaded video ID"
+            privacy_status = items[0].get("status", {}).get("privacyStatus", privacy_status)
+        elif privacy_status == "UNKNOWN":
+            privacy_check_detail = "videos.list returned no item and videos.insert omitted privacy status"
     except Exception as exc:
         privacy_check_detail = _youtube_error_details(exc)
-        print(f"YouTube upload succeeded, but privacy verification failed: {privacy_check_detail}")
+        print(
+            f"YouTube readback unavailable ({privacy_check_detail}); "
+            f"using videos.insert response privacyStatus={privacy_status}"
+        )
 
     hist.setdefault("uploaded_source_windows", []).append({
         "hash": source_hash, "source": source_filename,
