@@ -15,7 +15,7 @@ PALETTE_BGR = [
 
 
 async def _tts_async(text, out_mp3, voice):
-    comm = edge_tts.Communicate(text, voice, rate="+6%", pitch="-1Hz")
+    comm = edge_tts.Communicate(text, voice, rate="-4%", pitch="-1Hz")
     audio_parts, word_boundaries = [], []
     async for chunk in comm.stream():
         if chunk.get("type") == "audio":
