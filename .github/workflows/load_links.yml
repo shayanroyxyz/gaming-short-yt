@@ -32,6 +32,10 @@ jobs:
             echo "::error::GH_PAT repository secret is missing. Add a fine-grained token with Contents: Read and write before loading files."
             exit 1
           fi
+          # Bring the checkout up to date before the non-mutating write check.
+          # This avoids treating a normal non-fast-forward race as a bad token.
+          git fetch origin main
+          git rebase origin/main
           if ! git push --dry-run origin HEAD:main; then
             echo "::error::GH_PAT could not verify write access. Check its repository selection and Contents permission."
             exit 1
