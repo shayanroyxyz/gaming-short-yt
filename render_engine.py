@@ -128,7 +128,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.mp4", top_hook=""):
-    """Render a 14.4-second vertical Short from two 7.2-second gameplay cuts."""
+    """Render a full-bleed vertical Short sized to its actual narration duration."""
     if not os.path.isfile(src_video) or os.path.getsize(src_video) < 100_000:
         raise RuntimeError(f"Source video is missing or too small: {src_video}")
 
