@@ -82,7 +82,8 @@ def queue_video_link(target_chat, url, raw_name):
     if GH_PAT:
         subprocess.run(["git", "push", f"https://x-access-token:{GH_PAT}@github.com/{REPO}.git"], check=False)
     trigger_workflow("load_links.yml")
-    send_msg(target_chat, f"✅ Queued & Loader Started!\nFile: {safe_name}\nDownloading 720p straight to MEGA/pCloud now!", MAIN_KEYBOARD)
+    source_note = "Downloading the YouTube source" if str(url).startswith(("http://", "https://")) else "Downloading the Telegram video through the MTProto loader"
+    send_msg(target_chat, f"✅ Queued & Loader Started!\nFile: {safe_name}\n{source_note} to MEGA/pCloud now!", MAIN_KEYBOARD)
 
 if not TOKEN or not CHAT_ID:
     exit(0)
@@ -117,7 +118,27 @@ while time.time() < deadline:
             if chat_id not in allowed_chats and user_id != CHAT_ID:
                 continue
 
-            text = (msg.get("text") or "").strip()
+            text = (msg.get("text") or msg.get("caption") or "").strip()
+            media = msg.get("video") or msg.get("document") or msg.get("animation") or msg.get("video_note")
+            if media:
+                size_bytes = int(media.get("file_size") or 0)
+                caption = (msg.get("caption") or "").strip()
+                url_match = re.search(r"https?://(?:www\.)?(?:youtube\.com|youtu\.be)/[^\s<>]+", caption, re.I)
+                media_name = (msg.get("document") or {}).get("file_name") or f"[Telegram]_Clip_{msg.get('message_id', int(time.time()))}.mp4"
+                if url_match:
+                    clean_url = url_match.group(0).rstrip(".,;!?)")
+                    queue_video_link(chat_id, clean_url, media_name)
+                    if size_bytes >= int(19.5 * 1024 * 1024):
+                        send_msg(chat_id, f"⚠️ Telegram attachment ({size_bytes / 1048576:.1f} MB) was NOT queued. I extracted and queued the YouTube URL from its caption instead.", MAIN_KEYBOARD)
+                elif size_bytes >= int(19.5 * 1024 * 1024):
+                    send_msg(chat_id, f"⛔ Not queued: this Telegram video is {size_bytes / 1048576:.1f} MB. The Bot API download limit is 20 MB. Paste the YouTube URL in the caption or send the YouTube URL as a message instead.", MAIN_KEYBOARD)
+                else:
+                    mid = msg.get("message_id")
+                    if mid:
+                        queue_video_link(chat_id, f"tgmsg:{chat_id}:{mid}", media_name)
+                    else:
+                        send_msg(chat_id, "⚠️ I could not identify the Telegram message. Please send the YouTube URL instead.", MAIN_KEYBOARD)
+                continue
             if not text:
                 continue
 
