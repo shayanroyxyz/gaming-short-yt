@@ -130,6 +130,8 @@ while time.time() < deadline:
                     queue_video_link(chat_id, clean_url, media_name)
                     if size_bytes >= int(19.5 * 1024 * 1024):
                         send_msg(chat_id, f"⚠️ Telegram attachment ({size_bytes / 1048576:.1f} MB) was NOT queued. I extracted and queued the YouTube URL from its caption instead.", MAIN_KEYBOARD)
+                elif size_bytes <= 0:
+                    send_msg(chat_id, "⛔ Not queued: Telegram did not provide the file size, so I cannot verify it is below the 19.5 MB safety limit. Paste the YouTube URL instead.", MAIN_KEYBOARD)
                 elif size_bytes >= int(19.5 * 1024 * 1024):
                     send_msg(chat_id, f"⛔ Not queued: this Telegram video is {size_bytes / 1048576:.1f} MB. The Bot API download limit is 20 MB. Paste the YouTube URL in the caption or send the YouTube URL as a message instead.", MAIN_KEYBOARD)
                 else:
