@@ -148,6 +148,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     subprocess.run([
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-i", mp3_path, "-t", str(target_audio_dur),
+        "-filter:a", f"atempo={tempo:.6f}",
         "-c:a", "libmp3lame", "-q:a", "3", fitted_voice
     ], check=True, timeout=120)
 
