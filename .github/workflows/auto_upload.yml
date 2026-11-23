@@ -1,20 +1,14 @@
 name: 24/7 US Viral Gaming Shorts + IG Reels (6x Daily)
 on:
-  # Six daily runs at 9 AM, 12 PM, 3 PM, 6 PM, 9 PM and 12 AM
-  # US Eastern time. IANA timezone keeps these local times aligned across DST.
+  # Six daily fixed-UTC slots corresponding to the requested EST times.
+  # These do not shift automatically for US daylight saving time.
   schedule:
-    - cron: '17 9 * * *'
-      timezone: "America/New_York"
-    - cron: '17 12 * * *'
-      timezone: "America/New_York"
-    - cron: '17 15 * * *'
-      timezone: "America/New_York"
-    - cron: '17 18 * * *'
-      timezone: "America/New_York"
-    - cron: '17 21 * * *'
-      timezone: "America/New_York"
-    - cron: '17 0 * * *'
-      timezone: "America/New_York"
+    - cron: '17 14 * * *' # 9:17 AM EST / 7:47 PM IST
+    - cron: '17 17 * * *' # 12:17 PM EST / 10:47 PM IST
+    - cron: '17 20 * * *' # 3:17 PM EST / 1:47 AM IST
+    - cron: '17 23 * * *' # 6:17 PM EST / 4:47 AM IST
+    - cron: '17 2 * * *'  # 9:17 PM EST / 7:47 AM IST
+    - cron: '17 5 * * *'  # 12:17 AM EST / 10:47 AM IST
   workflow_dispatch:
 permissions:
   contents: write
@@ -71,7 +65,26 @@ jobs:
           IG_USER_ID: ${{ secrets.IG_USER_ID }}
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
           PYTHONUNBUFFERED: '1'
-        run: python main.py
+        name: Run main.py with 3 attempts and schedule logging
+        run: |
+          echo "Triggered by: ${{ github.event_name }} | Cron: ${{ github.event.schedule }}"
+          last_status=1
+          for attempt in 1 2 3; do
+            echo "main.py attempt ${attempt}/3"
+            if python main.py; then
+              echo "main.py succeeded on attempt ${attempt}/3"
+              exit 0
+            else
+              last_status=$?
+              echo "main.py failed on attempt ${attempt}/3 with exit code ${last_status}"
+            fi
+            if [ "${attempt}" -lt 3 ]; then
+              echo "Retrying in 15 seconds..."
+              sleep 15
+            fi
+          done
+          echo "main.py failed after all 3 attempts." >> "$GITHUB_STEP_SUMMARY"
+          exit "$last_status"
       - run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
