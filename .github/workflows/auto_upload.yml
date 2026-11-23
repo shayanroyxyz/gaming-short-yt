@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GH_PAT || github.token }}
+          token: ${{ github.token }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -42,15 +42,6 @@ jobs:
           rclone version
           rclone help backends | grep -i mega
       - run: pip install -q -r requirements.txt
-      - name: Verify GitHub token is configured before publishing
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          if [ -z "$GH_PAT" ]; then
-            echo "::error::GH_PAT repository secret is missing. Add a fine-grained token with Contents: Read and write before publishing."
-            exit 1
-          fi
-          echo "GH_PAT is present. Actual write is verified by the final retrying push step."
       - name: Drain pending Telegram and URL queue before rendering
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
