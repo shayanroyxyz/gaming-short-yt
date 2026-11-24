@@ -222,7 +222,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         f"drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
         f"textfile={hook_path}:fontcolor=white:fontsize=46:box=1:"
         f"boxcolor=black@0.82:boxborderw=18:x=(w-text_w)/2:y=250:"
-        f"enable=between(t,0,2.5):alpha=if(lt(t,2.1),1,max(0,(2.5-t)/0.4)),"
+        f"enable='between(t,0,2.5)':alpha='if(lt(t,2.1),1,max(0,(2.5-t)/0.4))',"
         f"ass={ass_path}[outv]"
     )
 
