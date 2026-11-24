@@ -136,12 +136,15 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     mp3_path, audio_dur, voice_used = tts_result[:3]
     word_boundaries = tts_result[3] if len(tts_result) > 3 else None
 
-    # Match the video to the real TTS duration instead of forcing every script
-    # into a fixed 14-second window. This prevents valid long or short narration
-    # from being rejected or unnaturally time-stretched.
+    # Keep natural narration speed; 75–95 words should land in this range.
+    if not (30.0 <= audio_dur <= 42.0):
+        raise RuntimeError(
+            f"Narration must be 30–42 seconds at natural pacing; got {audio_dur:.2f}s."
+        )
     target_audio_dur = audio_dur
     target_dur = target_audio_dur + 0.35
-    segment_dur = target_dur / 2.0
+    cut_count = 3 if target_audio_dur <= 36.0 else 4
+    segment_dur = target_dur / cut_count
     tempo = 1.0
 
     fitted_voice = "/tmp/voice_fitted.mp3"
@@ -175,36 +178,36 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     if not (1.0 < source_dur < 86400):
         raise RuntimeError(f"Source video duration is invalid: {duration_text!r}")
 
-    # Keep two distinct gameplay cuts inside the middle 88% of the source.
-    safe_start = source_dur * 0.06
-    safe_end = source_dur * 0.94
-    max_start = safe_end - segment_dur
-    if max_start < safe_start:
-        raise RuntimeError(
-            f"Source video is too short for two {segment_dur:.2f}-second gameplay cuts "
-            "after intro/outro trimming."
-        )
-
-    first_start = random.uniform(safe_start, max_start)
-    second_ranges = []
-    if first_start - segment_dur >= safe_start:
-        second_ranges.append((safe_start, first_start - segment_dur))
-    if first_start + segment_dur <= max_start:
-        second_ranges.append((first_start + segment_dur, max_start))
-    if second_ranges:
-        chosen_range = random.choice(second_ranges)
-        second_start = random.uniform(*chosen_range) if chosen_range[1] > chosen_range[0] else chosen_range[0]
-    else:
-        second_start = max_start if first_start <= safe_start + 0.01 else safe_start
+    # Pick 3–4 fast gameplay cuts from separate zones of the 45-second source window.
+    # Three cuts are 10–12s each; four cuts are about 9–10.6s each.
+    if source_dur < 45.0:
+        raise RuntimeError(f"Gameplay source window must be at least 45 seconds; got {source_dur:.2f}s.")
+    zone_width = source_dur / cut_count
+    cut_starts = []
+    for index in range(cut_count):
+        zone_start = index * zone_width
+        latest_start = zone_start + zone_width - segment_dur
+        if latest_start < zone_start:
+            raise RuntimeError("Source window is too short for the requested dynamic cut layout.")
+        cut_starts.append(random.uniform(zone_start, latest_start) if latest_start > zone_start else zone_start)
 
     hook_path = "/tmp/hook_banner.txt"
     with open(hook_path, "w", encoding="utf-8") as hook_file:
         hook_file.write(re.sub(r"\s+", " ", str(top_hook or "")).strip()[:100])
 
+    cut_filters = []
+    cut_labels = []
+    for index, cut_start in enumerate(cut_starts):
+        label = f"cut{index}"
+        cut_labels.append(f"[{label}]")
+        cut_filters.append(
+            f"[0:v]trim=start={cut_start:.3f}:duration={segment_dur:.3f},"
+            f"setpts=PTS-STARTPTS,fps=30,setsar=1[{label}]"
+        )
+    concat_inputs = "".join(cut_labels)
     filter_graph = (
-        f"[0:v]trim=start={first_start:.3f}:duration={segment_dur:.3f},setpts=PTS-STARTPTS,fps=30,setsar=1[cut1];"
-        f"[0:v]trim=start={second_start:.3f}:duration={segment_dur:.3f},setpts=PTS-STARTPTS,fps=30,setsar=1[cut2];"
-        "[cut1][cut2]concat=n=2:v=1:a=0[game];"
+        ";".join(cut_filters) + ";" +
+        f"{concat_inputs}concat=n={cut_count}:v=1:a=0[game];"
         "[game]scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,"
         "crop=1080:1920:(iw-ow)/2:(ih-oh)/2,"
         "unsharp=5:5:0.8:5:5:0.0,"
@@ -242,6 +245,6 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
 
     print(
         f"Rendered {output_duration:.2f}s Short with {voice_used}; "
-        f"two {segment_dur:.2f}s gameplay cuts, full-bleed 9:16 crop, 6% intro/outro exclusion, hook banner and synced captions."
+        f"{cut_count} dynamic {segment_dur:.2f}s gameplay cuts, full-bleed 9:16 crop, hook banner and synced captions."
     )
     return out_video
