@@ -352,7 +352,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
 def run_ffmpeg_self_test():
     """Render a synthetic 24s Short through the production FFmpeg graph."""
     source = "/tmp/preflight_source.mp4"
-    voice = "/tmp/preflight_voice.wav"
+    voice = "/tmp/preflight_voice.mp3"
     output = "/tmp/preflight_render.mp4"
     subprocess.run([
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
@@ -360,11 +360,6 @@ def run_ffmpeg_self_test():
         "-t", "45", "-an", "-c:v", "libx264", "-preset", "ultrafast",
         "-crf", "30", "-pix_fmt", "yuv420p", source
     ], check=True, timeout=240)
-    subprocess.run([
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=24",
-        "-c:a", "pcm_s16le", voice
-    ], check=True, timeout=60)
     script = (
         "This impossible jump sends the car flying across the entire street. "
         "The strange part is what happens after it lands. The suspension compresses, "
@@ -373,6 +368,19 @@ def run_ffmpeg_self_test():
         "That tiny physics reaction is why this older game still surprises players "
         "and why its driving system deserves another look."
     )
+    _, voice_duration, voice_name, _ = synthesize_human_voice(script, out_mp3=voice)
+    if not (22.0 <= voice_duration <= 28.0):
+        adjusted_voice = "/tmp/preflight_voice_adjusted.mp3"
+        atempo = voice_duration / 24.0
+        if not (0.5 <= atempo <= 2.0):
+            raise RuntimeError(f"Preflight TTS duration cannot be normalized safely: {voice_duration:.2f}s")
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", voice,
+            "-filter:a", f"atempo={atempo:.6f}", "-c:a", "libmp3lame",
+            "-q:a", "3", adjusted_voice
+        ], check=True, timeout=90)
+        voice = adjusted_voice
+    print(f"[preflight] TTS fixture generated with {voice_name}; original duration={voice_duration:.2f}s")
     rendered = render_full_bleed_short(
         source, script, output, top_hook="THAT LANDING WAS IMPOSSIBLE",
         creative_angle="clip_focused", voice_audio_override=voice
