@@ -459,6 +459,11 @@ def _parse_strict_ai_json(raw):
     words = re.findall(r"\b[\w’'-]+\b", data["script"])
     if not 55 <= len(words) <= 68:
         raise ValueError(f"narration must contain 55–68 words; received {len(words)}")
+    opener = " ".join(words[:6]).lower()
+    if re.match(r"^(?:in this video|have you ever wondered|today we|let me show you|welcome back|what if you)", opener):
+        raise ValueError("opening six words are slow/filler; begin with the visible action or payoff")
+    if len(words) < 6:
+        raise ValueError("script needs at least six opening words")
     if not re.search(r"[.!?][\"')\]]?$", data["script"].strip()):
         raise ValueError("narration must end with a complete sentence")
 
@@ -497,9 +502,17 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     ).strip()
     duration = max(1.0, float(duration_text))
     frame_paths = []
-    for index, fraction in enumerate((0.12, 0.36, 0.64, 0.88), start=1):
+    # Sample the highest-motion window that the renderer will use at 0:00.
+    first_action_start = _render_engine._score_motion_windows(local_clip, duration, 3.5)[0]
+    sample_times = [
+        first_action_start + 0.35,
+        first_action_start + 1.25,
+        first_action_start + 2.45,
+        min(max(0.0, duration * 0.88), max(0.0, duration - 0.1)),
+    ]
+    for index, timestamp in enumerate(sample_times, start=1):
         frame_path = f"/tmp/gameplay_frame_{index}.jpg"
-        timestamp = min(max(0.0, duration * fraction), max(0.0, duration - 0.1))
+        timestamp = min(max(0.0, timestamp), max(0.0, duration - 0.1))
         subprocess.run(
             ["ffmpeg", "-y", "-ss", str(timestamp), "-i", local_clip,
              "-frames:v", "1", "-vf", "scale=768:-1", "-q:v", "5", frame_path],
@@ -527,7 +540,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         "or surprising fact; narration need not describe driving. For a specific experiment, object, NPC behavior, glitch, "
         "physics test, secret, or Easter egg, choose clip_focused and narrate the visible setup through its exact payoff. "
         "Never invent what the frames show or make unsupported insider claims. "
-        "Write 55-68 spoken words, naturally paced for 22-27 seconds: immediate curiosity hook in the first words, rapid escalation, clear payoff, and a seamless loop ending. "
+        "Write 55-68 spoken words, naturally paced for 22-27 seconds. The FIRST SIX WORDS must be a concrete, startling curiosity hook directly tied to the strongest visible action in the supplied frames (the same action that opens the Short). Start with the object/action/payoff itself. Never begin with filler such as In this video, Have you ever wondered, Today we, or Let me show you. Escalate quickly, deliver a clear payoff, and end on a seamless loop. "
         f"Filename: {clean_name}. Focus: {focus}. Current trend context: {hype_now}. Previous angle: {previous_angle}. "
         f"Recent scripts to avoid:\\n{recent_avoid}\\n"
         f"Last 10 titles and opening hooks (avoid topic, wording, sentence shape, and hook pattern):\\n{recent_title_hooks}\\n"
