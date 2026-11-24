@@ -39,13 +39,21 @@ def send_msg(target_chat, text, kb=MAIN_KEYBOARD):
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data=payload, timeout=15)
 
 def trigger_workflow(wf_file):
-    if GH_PAT:
-        requests.post(
+    if not GH_PAT:
+        return "not sent (GH_PAT is not configured)"
+    try:
+        response = requests.post(
             f"https://api.github.com/repos/{REPO}/actions/workflows/{wf_file}/dispatches",
             headers={"Authorization": f"Bearer {GH_PAT}", "Accept": "application/vnd.github+json"},
             json={"ref": "main"},
             timeout=15
         )
+        detail = (response.text or "").strip().replace("\\n", " ")[:240]
+        if response.status_code == 204:
+            return "HTTP 204 Accepted"
+        return f"HTTP {response.status_code}: {detail or response.reason}"
+    except requests.RequestException as exc:
+        return f"request error: {type(exc).__name__}: {exc}"
 
 def get_yt_service():
     creds = Credentials(
@@ -125,21 +133,20 @@ while time.time() < deadline:
                 caption = (msg.get("caption") or "").strip()
                 url_match = re.search(r"https?://(?:www\.)?(?:youtube\.com|youtu\.be)/[^\s<>]+", caption, re.I)
                 media_name = (msg.get("document") or {}).get("file_name") or f"[Telegram]_Clip_{msg.get('message_id', int(time.time()))}.mp4"
+                max_media_bytes = 1950 * 1024 * 1024
                 if url_match:
                     clean_url = url_match.group(0).rstrip(".,;!?)")
                     queue_video_link(chat_id, clean_url, media_name)
-                    if size_bytes >= int(19.5 * 1024 * 1024):
-                        send_msg(chat_id, f"⚠️ Telegram attachment ({size_bytes / 1048576:.1f} MB) was NOT queued. I extracted and queued the YouTube URL from its caption instead.", MAIN_KEYBOARD)
                 elif size_bytes <= 0:
-                    send_msg(chat_id, "⛔ Not queued: Telegram did not provide the file size, so I cannot verify it is below the 19.5 MB safety limit. Paste the YouTube URL instead.", MAIN_KEYBOARD)
-                elif size_bytes >= int(19.5 * 1024 * 1024):
-                    send_msg(chat_id, f"⛔ Not queued: this Telegram attachment is {size_bytes / 1048576:.1f} MB, above this bot’s 19.5 MB safety limit. Paste the YouTube URL in the caption or send the URL as a message instead.", MAIN_KEYBOARD)
+                    send_msg(chat_id, "⛔ Not queued: Telegram did not provide a file size. Please resend the video or send its YouTube URL.", MAIN_KEYBOARD)
+                elif size_bytes > max_media_bytes:
+                    send_msg(chat_id, f"⛔ Not queued: this Telegram attachment is {size_bytes / 1048576:.1f} MiB. The MTProto loader accepts files up to 1,950 MiB.", MAIN_KEYBOARD)
                 else:
                     mid = msg.get("message_id")
                     if mid:
                         queue_video_link(chat_id, f"tgmsg:{chat_id}:{mid}", media_name)
                     else:
-                        send_msg(chat_id, "⚠️ I could not identify the Telegram message. Please send the YouTube URL instead.", MAIN_KEYBOARD)
+                        send_msg(chat_id, "⚠️ I could not identify the Telegram message. Please resend it.", MAIN_KEYBOARD)
                 continue
             if not text:
                 continue
@@ -167,8 +174,11 @@ while time.time() < deadline:
             elif text == "➕ Add Video Link":
                 send_msg(chat_id, "📎 Paste any YouTube gameplay link right now (720p/1080p) and I will ask you what to name it!", MAIN_KEYBOARD)
             elif text in ["🚀 Make Short Now", "/make"]:
-                trigger_workflow("auto_upload.yml")
-                send_msg(chat_id, "🚀 Triggered a brand-new Short right now! It will publish to YouTube, Instagram Reels & Telegram in ~60 seconds.", MAIN_KEYBOARD)
+                dispatch_result = trigger_workflow("auto_upload.yml")
+                if dispatch_result == "HTTP 204 Accepted":
+                    send_msg(chat_id, f"🚀 GitHub accepted the workflow dispatch ({dispatch_result}). Publishing is not confirmed until the run completes.", MAIN_KEYBOARD)
+                else:
+                    send_msg(chat_id, f"⚠️ Workflow dispatch was not confirmed: {dispatch_result}", MAIN_KEYBOARD)
             elif text in ["🗑️ Delete Last", "/delete_last"]:
                 vid = cfg.get("last_video_id", "")
                 if vid:
