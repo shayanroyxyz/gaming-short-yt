@@ -8,7 +8,8 @@
     "WAITING FOR THE NEXT CHAPTER",
     "EXPLORING THE SUNNY OPEN WORLD",
     "CHOP DISAPPEARED IN SECONDS",
-    "ONE SHOT CHANGES EVERYTHING"
+    "ONE SHOT CHANGES EVERYTHING",
+    "TRUCK DRIVES ON OCEAN FLOOR"
   ],
   "recent_scripts": [
     {
@@ -40,6 +41,11 @@
       "source": "[GTA5]_Clip_6723.mp4",
       "script": "ONE SHOT CHANGES EVERYTHING. We\u2019re at the Sandy Shores airfield testing the hidden physics of this red Vapid Bullet. First, Franklin aims a single pistol round at the fuel cap. One precise hit triggers a leak that eventually turns the car into a fireball. Next, we target the front tires. Watch as the wheels ignite, sending flames licking up the side of the door. Finally, we floor it down the runway to see the fire react to high speed. The way sparks trail behind burning rims is insane. ONE SHOT CHANGES EVERYTHING.",
       "created_at": "2026-11-24T05:04:30.803929+00:00"
+    },
+    {
+      "source": "[GTA5]_Clip_6723.mp4",
+      "script": "TRUCK DRIVES ON OCEAN FLOOR. At Del Perro Pier, the driver is in scuba gear behind the wheel of a black pickup. He drives straight into the ocean. Once submerged, the physics hold up. The truck keeps traction on the sandy floor as the water turns murky blue. But look at the stars. Even at the bottom of the sea, we have a two-star wanted level. The LSPD is tracking us through the seaweed. If the police find you here, where can you hide? You\u2019ll need a snorkel when TRUCK DRIVES ON OCEAN FLOOR.",
+      "created_at": "2026-11-24T07:13:49.520135+00:00"
     }
   ],
   "used_sources": [
@@ -51,7 +57,8 @@
     "pcloud:[GTA5]_Clip_6723.mp4",
     "pcloud:[GTA6]_Clip_316.mp4",
     "mega:[GTA5]_Clip_6697.mp4@135s",
-    "pcloud:[GTA5]_Clip_6723.mp4@45s"
+    "pcloud:[GTA5]_Clip_6723.mp4@45s",
+    "pcloud:[GTA5]_Clip_6723.mp4@135s"
   ],
   "uploaded_source_windows": [
     {
@@ -133,6 +140,15 @@
       "video_id": "VYWuYtCsBJc",
       "privacy_status": "public",
       "uploaded_at": "2026-11-24T05:05:24.172339+00:00"
+    },
+    {
+      "hash": "2d92a158ccda097b8ac378cabe74fdcc386092c571dd6d20d4bee27c2395c463",
+      "source": "[GTA5]_Clip_6723.mp4",
+      "start_second": 135.0,
+      "duration": 45.0,
+      "video_id": "r-TysRj0Os0",
+      "privacy_status": "public",
+      "uploaded_at": "2026-11-24T07:14:53.616665+00:00"
     }
   ],
   "used_source_windows": [
@@ -149,6 +165,13 @@
       "duration": 45.0,
       "hash": "aaace01b5c678115cdfc0f6ad2b7cd8816e004da4e3047c104ef33d6e9cc4465",
       "video_id": "VYWuYtCsBJc"
+    },
+    {
+      "source": "[GTA5]_Clip_6723.mp4",
+      "start_second": 135.0,
+      "duration": 45.0,
+      "hash": "2d92a158ccda097b8ac378cabe74fdcc386092c571dd6d20d4bee27c2395c463",
+      "video_id": "r-TysRj0Os0"
     }
   ],
   "published_source_files": [
