@@ -127,7 +127,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return out_ass
 
 
-def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.mp4", top_hook=""):
+def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.mp4", top_hook="", creative_angle="clip_focused"):
     """Render a full-bleed vertical Short sized to its actual narration duration.\n\nOne-shot live pipeline verification trigger."""
     if not os.path.isfile(src_video) or os.path.getsize(src_video) < 100_000:
         raise RuntimeError(f"Source video is missing or too small: {src_video}")
@@ -143,8 +143,17 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         )
     target_audio_dur = audio_dur
     target_dur = target_audio_dur
-    cut_count = 3 if target_audio_dur <= 36.0 else 4
+    creative_angle = str(creative_angle or "clip_focused").strip().lower()
+    if creative_angle == "story_fact":
+        cut_count = max(5, min(7, round(target_audio_dur / 6.0)))
+    else:
+        creative_angle = "clip_focused"
+        cut_count = max(3, min(4, round(target_audio_dur / 11.0)))
     segment_dur = target_dur / cut_count
+    if creative_angle == "story_fact" and not (4.0 <= segment_dur <= 7.0):
+        raise RuntimeError(f"Story pacing produced an invalid {segment_dur:.2f}s cut length.")
+    if creative_angle == "clip_focused" and not (9.0 <= segment_dur <= 13.5):
+        raise RuntimeError(f"Clip-focused pacing produced an invalid {segment_dur:.2f}s cut length.")
     tempo = 1.0
 
     fitted_voice = "/tmp/voice_fitted.mp3"
@@ -178,8 +187,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     if not (1.0 < source_dur < 86400):
         raise RuntimeError(f"Source video duration is invalid: {duration_text!r}")
 
-    # Pick 3–4 fast gameplay cuts from separate zones of the 45-second source window.
-    # Three cuts are 10–12s each; four cuts are about 9–10.6s each.
+    # Adaptive pacing: story/fact = 5–7 fast cuts; clip-focused = 3–4 longer cuts.
     if source_dur < 45.0:
         raise RuntimeError(f"Gameplay source window must be at least 45 seconds; got {source_dur:.2f}s.")
     zone_width = source_dur / cut_count
@@ -213,7 +221,8 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         "unsharp=5:5:0.8:5:5:0.0,"
         f"drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
         f"textfile={hook_path}:fontcolor=white:fontsize=46:box=1:"
-        f"boxcolor=black@0.82:boxborderw=18:x=(w-text_w)/2:y=105,"
+        f"boxcolor=black@0.82:boxborderw=18:x=(w-text_w)/2:y=250:"
+        f"enable=between(t,0,2.5):alpha=if(lt(t,2.1),1,max(0,(2.5-t)/0.4)),"
         f"ass={ass_path}[outv]"
     )
 
@@ -245,6 +254,6 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
 
     print(
         f"Rendered {output_duration:.2f}s Short with {voice_used}; "
-        f"{cut_count} dynamic {segment_dur:.2f}s gameplay cuts, full-bleed 9:16 crop, hook banner and synced captions."
+        f"{creative_angle} pacing: {cut_count} dynamic {segment_dur:.2f}s gameplay cuts, full-bleed 9:16 crop, hook badge and synced captions."
     )
     return out_video
