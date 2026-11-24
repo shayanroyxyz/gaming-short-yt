@@ -339,7 +339,7 @@ def ask_ai_brain(prompt):
     raise RuntimeError("No AI API key succeeded.")
 
 def stream_unique_action_clips(hist, focus):
-    """Choose one cloud clip, download it locally, and validate it before rendering."""
+    """Download a cloud source and extract a fresh, non-overlapping 20-second window."""
     conf = os.environ.get("RCLONE_CONF", "").strip()
     if not conf:
         raise RuntimeError("Missing RCLONE_CONF secret.")
@@ -367,70 +367,138 @@ def stream_unique_action_clips(hist, focus):
         detail = ", ".join(remote_errors) if remote_errors else "No supported video files found"
         raise RuntimeError(f"No source clips available in MEGA/pCloud GTA_Clips ({detail}).")
 
-    # Never select a source file already confirmed as published. Unlike the
-    # rolling recent_sources list, this is a hard duplicate-prevention check.
-    published_files = set(hist.get("published_source_files", []))
-    eligible_pool = [(r, n) for r, n in pool if n not in published_files]
-    if not eligible_pool:
-        raise RuntimeError("All available cloud clips are already marked as published; refusing a duplicate upload.")
-    recent_sources = set(hist.get("used_sources", [])[-30:])
-    fresh_pool = [(r, n) for r, n in eligible_pool if f"{r}:{n}" not in recent_sources]
-    candidates = fresh_pool or eligible_pool
-
+    # Probe each cloud source's duration before selecting it. Candidate starts
+    # are spaced 30s apart; each extracted scene window is 20s long.
+    random.shuffle(pool)
     focus_key = str(focus or "auto").lower()
-    focused = [(r, n) for r, n in candidates if focus_key != "auto" and focus_key in n.lower()]
-    if focused:
-        remote, fname = random.choice(focused)
-    else:
-        gta_files = [(r, n) for r, n in candidates if "gta" in n.lower()]
-        remote, fname = random.choice(gta_files) if gta_files and random.random() < 0.75 else random.choice(candidates)
+    focused_pool = [(r, n) for r, n in pool if focus_key != "auto" and focus_key in n.lower()]
+    if focused_pool:
+        pool = focused_pool + [item for item in pool if item not in focused_pool]
 
-    ext = os.path.splitext(fname)[1].lower()
-    if ext not in (".mp4", ".mkv", ".webm"):
-        raise RuntimeError(f"Unsupported source extension: {ext or '(none)'}")
+    uploaded_entries = [
+        entry for entry in hist.get("uploaded_source_windows", [])
+        if isinstance(entry, dict)
+    ]
+    used_sources = hist.setdefault("used_sources", [])
 
-    local_clip = os.path.join("/tmp", f"gta_source_clip{ext}")
+    chosen = None
+    exhausted_files = []
+    for remote, fname in pool:
+        ext = os.path.splitext(fname)[1].lower()
+        if ext not in (".mp4", ".mkv", ".webm"):
+            continue
+        source_path = f"{remote}:GTA_Clips/{fname}"
+        local_full = os.path.join("/tmp", f"gta_source_full{ext}")
+        if os.path.exists(local_full):
+            os.remove(local_full)
+        print(f">> Downloading selected source from {remote}: {fname}")
+        subprocess.run(
+            [
+                "rclone", "copyto", source_path, local_full,
+                "--retries", "3", "--low-level-retries", "5",
+                "--timeout", "90s", "--contimeout", "30s"
+            ],
+            check=True, capture_output=True, text=True, timeout=540
+        )
+        if not os.path.isfile(local_full) or os.path.getsize(local_full) < 100_000:
+            raise RuntimeError("Cloud download completed without a valid local video file.")
+
+        duration_text = subprocess.check_output(
+            [
+                "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", local_full
+            ],
+            text=True, stderr=subprocess.PIPE, timeout=60
+        ).strip()
+        try:
+            duration = float(duration_text)
+        except (TypeError, ValueError):
+            raise RuntimeError(f"ffprobe returned an invalid source duration for {fname}: {duration_text!r}")
+        if duration < 20.0 or duration >= 86400:
+            print(f">> Skipping {fname}: duration {duration:.2f}s is too short for a 20s window.")
+            continue
+
+        # Include remote in the history key so same-named files in MEGA and
+        # pCloud are tracked independently. Legacy entries keyed by filename
+        # are also honored for backward compatibility.
+        source_key = f"{remote}:{fname}"
+        starts_used = []
+        for entry in uploaded_entries:
+            entry_source = str(entry.get("source", ""))
+            if entry_source in (fname, source_key):
+                try:
+                    starts_used.append(float(entry.get("start_second", 0.0)))
+                except (TypeError, ValueError):
+                    continue
+
+        window_count = int((duration - 20.0) // 30.0) + 1
+        candidate_starts = [float(i * 30) for i in range(window_count)]
+        available_starts = [
+            start for start in candidate_starts
+            if all(abs(start - used_start) >= 30.0 for used_start in starts_used)
+        ]
+        used_count = len(candidate_starts) - len(available_starts)
+        used_ratio = used_count / max(1, window_count)
+        if used_ratio > 0.85 or not available_starts:
+            exhausted_files.append(f"{fname} ({used_ratio:.0%} used)")
+            continue
+
+        start_second = random.choice(available_starts)
+        chosen = (remote, fname, local_full, duration, start_second, source_key)
+        break
+
+    if chosen is None:
+        details = "; ".join(exhausted_files[:5])
+        raise RuntimeError(
+            "No unused 20-second source windows remain in the cloud pool; "
+            f"files are only exhausted after >85% of their candidate windows are used. {details}"
+        )
+
+    remote, fname, local_full, source_duration, start_second, source_key = chosen
+    local_clip = "/tmp/gta_source_window.mp4"
     if os.path.exists(local_clip):
         os.remove(local_clip)
-
-    source_path = f"{remote}:GTA_Clips/{fname}"
-    print(f">> Downloading selected source from {remote}: {fname}")
     subprocess.run(
         [
-            "rclone", "copyto", source_path, local_clip,
-            "--retries", "3", "--low-level-retries", "5",
-            "--timeout", "90s", "--contimeout", "30s"
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", f"{start_second:.3f}", "-i", local_full,
+            "-t", "20", "-map", "0:v:0", "-map", "0:a?",
+            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+            local_clip
         ],
-        check=True, capture_output=True, text=True, timeout=540
+        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=240
     )
-
     if not os.path.isfile(local_clip) or os.path.getsize(local_clip) < 100_000:
-        raise RuntimeError("Cloud download completed without a valid local video file.")
+        raise RuntimeError(f"Could not extract selected 20-second gameplay window from {fname}.")
 
-    duration_text = subprocess.check_output(
+    window_duration_text = subprocess.check_output(
         [
             "ffprobe", "-v", "error", "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1", local_clip
         ],
         text=True, stderr=subprocess.PIPE, timeout=60
     ).strip()
-    try:
-        duration = float(duration_text)
-    except (TypeError, ValueError):
-        raise RuntimeError(f"ffprobe returned an invalid source duration: {duration_text!r}")
-    if not (1.0 < duration < 86400):
-        raise RuntimeError(f"Source video duration is invalid: {duration_text!r}")
+    window_duration = float(window_duration_text)
+    if not (19.0 <= window_duration <= 20.5):
+        raise RuntimeError(f"Extracted gameplay window has invalid duration: {window_duration:.2f}s")
 
-    start_second = 0.0
-    source_hash = source_window_hash(fname, start_second, duration)
-    uploaded = {entry.get("hash") for entry in hist.get("uploaded_source_windows", []) if isinstance(entry, dict)}
-    if source_hash in uploaded:
-        raise RuntimeError(f"Duplicate source window already uploaded; skipping: {fname}")
-    used_sources = hist.setdefault("used_sources", [])
-    used_sources.append(f"{remote}:{fname}")
-    hist["used_sources"] = used_sources[-100:]
-    print(f">> Source validated: {duration:.2f}s, {os.path.getsize(local_clip)} bytes")
-    return fname, local_clip, source_hash, start_second, duration
+    source_hash = source_window_hash(source_key, start_second, 20.0)
+    uploaded_hashes = {
+        entry.get("hash") for entry in uploaded_entries if entry.get("hash")
+    }
+    if source_hash in uploaded_hashes:
+        raise RuntimeError(f"Duplicate 20-second source window detected: {source_key} at {start_second:.0f}s")
+
+    used_sources.append(f"{source_key}@{start_second:.0f}s")
+    hist["used_sources"] = used_sources[-500:]
+    print(
+        f">> Fresh window selected: {source_key} at {start_second:.0f}s "
+        f"(20s window; source duration {source_duration:.1f}s; "
+        f"{len(starts_used)} prior windows recorded)."
+    )
+    return fname, local_clip, source_hash, start_second, 20.0
 
 def _parse_strict_ai_json(raw):
     cleaned = re.sub(r"^\s*\x60{3}(?:json)?\s*|\s*\x60{3}\s*$", "", str(raw).strip(), flags=re.IGNORECASE)
@@ -496,15 +564,20 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     recent_avoid = "\n".join(f"- {x}" for x in recent_scripts if x)
     hype_now = fetch_live_hype_context()
     prompt = (
-        "Write a truthful gaming Short based ONLY on the attached sampled gameplay frames. "
+        "Write a high-retention US gaming YouTube Short based ONLY on the attached sampled gameplay frames. "
         "Infer only visible events; never invent actions, outcomes, characters, or mechanics. "
         "If ambiguous, describe only what is certain. "
+        "The script MUST be exactly 32-38 spoken words and sound natural at a 13-15 second pace. "
+        "Open with an immediate curiosity hook, deliver a specific visual payoff, and end cleanly "
+        "so the final line can loop naturally into the opening. "
         f"Filename (weak hint only): {clean_name}. Focus: {focus}. Optional trend context: {hype_now}. "
         f"Do not reuse or closely paraphrase these recent scripts:\n{recent_avoid}\n"
         "Return ONLY valid JSON with keys hook, script, title, comment, ig_caption, tags. "
         "hook: 4-6 uppercase words. script: exactly 32-38 spoken words, natural US English, "
         "describe visible gameplay evidence and payoff, complete final sentence. "
-        "Avoid generic filler. TITLE RULES: under 70 characters; never use vague templates such as " +
+        "Avoid generic filler. TITLE RULES: under 70 characters; write a punchy US Shorts title " +
+        "built around a specific visible detail, surprising outcome, rarity, number, or direct game comparison. " +
+        "Never use generic templates such as " +
         "'Tracking Leads Through the City', 'From the Beach', or 'Pushing Physics'. " +
         "Write a specific, truthful US Shorts curiosity title grounded in visible gameplay; " +
         "include a concrete number, secret/hidden detail, rare discovery, or clear comparison " +
