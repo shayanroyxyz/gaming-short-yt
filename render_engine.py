@@ -142,7 +142,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
             f"Narration must be 30–42 seconds at natural pacing; got {audio_dur:.2f}s."
         )
     target_audio_dur = audio_dur
-    target_dur = target_audio_dur + 0.35
+    target_dur = target_audio_dur
     cut_count = 3 if target_audio_dur <= 36.0 else 4
     segment_dur = target_dur / cut_count
     tempo = 1.0
