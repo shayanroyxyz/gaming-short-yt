@@ -133,14 +133,14 @@ while time.time() < deadline:
                 caption = (msg.get("caption") or "").strip()
                 url_match = re.search(r"https?://(?:www\.)?(?:youtube\.com|youtu\.be)/[^\s<>]+", caption, re.I)
                 media_name = (msg.get("document") or {}).get("file_name") or f"[Telegram]_Clip_{msg.get('message_id', int(time.time()))}.mp4"
-                max_media_bytes = 1950 * 1024 * 1024
+                max_media_bytes = 1_950_000_000  # 1.95 GB decimal, below the 2 GB MTProto ceiling.
                 if url_match:
                     clean_url = url_match.group(0).rstrip(".,;!?)")
                     queue_video_link(chat_id, clean_url, media_name)
                 elif size_bytes <= 0:
                     send_msg(chat_id, "⛔ Not queued: Telegram did not provide a file size. Please resend the video or send its YouTube URL.", MAIN_KEYBOARD)
                 elif size_bytes > max_media_bytes:
-                    send_msg(chat_id, f"⛔ Not queued: this Telegram attachment is {size_bytes / 1048576:.1f} MiB. The MTProto loader accepts files up to 1,950 MiB.", MAIN_KEYBOARD)
+                    send_msg(chat_id, f"⛔ Not queued: this Telegram attachment is {size_bytes / 1_000_000:.1f} MB. The MTProto loader accepts files up to 1,950 MB.", MAIN_KEYBOARD)
                 else:
                     mid = msg.get("message_id")
                     if mid:
