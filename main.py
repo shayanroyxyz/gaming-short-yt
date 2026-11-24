@@ -361,7 +361,7 @@ def stream_unique_action_clips(hist, focus):
             starts_used = []
             for entry in uploaded_entries:
                 entry_source = str(entry.get("source", ""))
-                if entry_source in (fname, source_key):
+                if entry_source == source_key:
                     try:
                         starts_used.append(float(entry.get("start_second", 0.0)))
                     except (TypeError, ValueError):
@@ -620,7 +620,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
 
     if data is None:
         fallback_prompt = (
-            prompt + "\\nGemini visual analysis was unavailable or rate-limited. "
+            prompt + "\nGemini visual analysis was unavailable or rate-limited. "
             "Text-only fallback: do not claim to see the frames; use only filename, focus, and reliable game facts. "
             "Return the same strict JSON schema and 55-68 spoken words."
         )
@@ -880,6 +880,8 @@ if __name__ == "__main__":
         try:
             from analytics_tuner import tune_daily_analytics
             tune_daily_analytics(cfg, hist)
+            with open("config.json", "w", encoding="utf-8") as config_file:
+                json.dump(cfg, config_file, indent=2)
         except Exception as analytics_error:
             print(f"[analytics] Non-fatal tuner error: {type(analytics_error).__name__}: {analytics_error}")
         fname, local_clip, source_hash, start_second, source_duration, source_key = stream_unique_action_clips(hist, focus)
