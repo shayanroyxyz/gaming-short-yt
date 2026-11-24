@@ -369,7 +369,9 @@ def run_ffmpeg_self_test():
         "This impossible jump sends the car flying across the entire street. "
         "The strange part is what happens after it lands. The suspension compresses, "
         "the wheels recover, and the vehicle keeps moving as if nothing happened. "
-        "That tiny physics detail is why this older game still surprises players."
+        "Then the camera catches one more detail near the rear wheel. "
+        "That tiny physics reaction is why this older game still surprises players "
+        "and why its driving system deserves another look."
     )
     rendered = render_full_bleed_short(
         source, script, output, top_hook="THAT LANDING WAS IMPOSSIBLE",
