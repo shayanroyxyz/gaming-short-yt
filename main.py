@@ -413,7 +413,7 @@ def stream_unique_action_clips(hist, focus):
     if chosen is None:
         details = "; ".join(exhausted_files[:5])
         raise RuntimeError(
-            "No unused 45-second source windows remain in the cloud pool; 
+            "No unused 45-second source windows remain in the cloud pool; "
             f"files are only exhausted after >85% of their candidate windows are used. {details}"
         )
 
