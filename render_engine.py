@@ -163,13 +163,49 @@ def _score_motion_windows(src_video, source_dur, segment_dur, step=1.0):
     return selected
 
 
-def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.mp4", top_hook="", creative_angle="clip_focused"):
+def _frame_quality_metrics(src_video, timestamp):
+    """Measure a grayscale frame using stdlib math; no OpenCV dependency."""
+    width, height = 160, 90
+    decoded = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", f"{timestamp:.3f}",
+         "-i", src_video, "-frames:v", "1", "-vf",
+         f"scale={width}:{height}:flags=area,format=gray",
+         "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45
+    ).stdout
+    if len(decoded) != width * height:
+        raise RuntimeError("Could not decode the opening frame for visual quality analysis.")
+    values = list(decoded)
+    mean = sum(values) / len(values)
+    variance = sum((value - mean) ** 2 for value in values) / len(values)
+    contrast = variance ** 0.5
+    horizontal = sum(abs(values[y * width + x] - values[y * width + x - 1])
+                     for y in range(height) for x in range(1, width))
+    vertical = sum(abs(values[y * width + x] - values[(y - 1) * width + x])
+                   for y in range(1, height) for x in range(width))
+    sharpness = (horizontal + vertical) / (height * (width - 1) + (height - 1) * width)
+    return {
+        "brightness": round(mean, 2),
+        "contrast": round(contrast, 2),
+        "sharpness": round(sharpness, 2),
+    }
+
+
+def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.mp4", top_hook="", creative_angle="clip_focused", voice_audio_override=None):
     """Render a 22–28 second vertical Short with motion-ranked action-first cuts."""
     if not os.path.isfile(src_video) or os.path.getsize(src_video) < 100_000:
         raise RuntimeError(f"Source video is missing or too small: {src_video}")
-    tts_result = synthesize_human_voice(script_text)
-    mp3_path, audio_dur, voice_used = tts_result[:3]
-    word_boundaries = tts_result[3] if len(tts_result) > 3 else None
+    if voice_audio_override:
+        mp3_path = voice_audio_override
+        audio_dur = float(subprocess.check_output([
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", mp3_path
+        ], text=True, timeout=60).strip())
+        voice_used, word_boundaries = "synthetic-preflight", None
+    else:
+        tts_result = synthesize_human_voice(script_text)
+        mp3_path, audio_dur, voice_used = tts_result[:3]
+        word_boundaries = tts_result[3] if len(tts_result) > 3 else None
     if not (22.0 <= audio_dur <= 28.0):
         raise RuntimeError(f"Narration must be 22–28 seconds at natural pacing; got {audio_dur:.2f}s.")
 
@@ -179,12 +215,18 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     if not (3.0 <= segment_dur <= 4.0):
         raise RuntimeError(f"Invalid fast-cut length: {segment_dur:.2f}s.")
 
-    fitted_voice = "/tmp/voice_fitted.mp3"
-    subprocess.run([
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", mp3_path,
-        "-t", str(target_dur), "-filter:a", "atempo=1.0",
-        "-c:a", "libmp3lame", "-q:a", "3", fitted_voice
-    ], check=True, timeout=120)
+    fitted_voice = "/tmp/voice_fitted.wav" if voice_audio_override else "/tmp/voice_fitted.mp3"
+    if voice_audio_override:
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", mp3_path,
+            "-t", str(target_dur), "-c:a", "pcm_s16le", fitted_voice
+        ], check=True, timeout=120)
+    else:
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", mp3_path,
+            "-t", str(target_dur), "-filter:a", "atempo=1.0",
+            "-c:a", "libmp3lame", "-q:a", "3", fitted_voice
+        ], check=True, timeout=120)
     fitted_boundaries = [
         {"text": item.get("text", ""), "start": float(item.get("start", 0)),
          "duration": float(item.get("duration", 0))}
@@ -200,7 +242,24 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     ], text=True, timeout=60).strip())
     if source_dur < segment_dur:
         raise RuntimeError("Gameplay source is shorter than one required cut.")
-    cut_starts = _score_motion_windows(src_video, source_dur, segment_dur)
+    ranked_starts = _score_motion_windows(src_video, source_dur, segment_dur)
+    opening_start = None
+    for candidate in ranked_starts:
+        try:
+            metrics = _frame_quality_metrics(src_video, candidate + 0.12)
+        except Exception as exc:
+            print(f"[visual-gate] Could not inspect frame at {candidate:.2f}s: {exc}")
+            continue
+        if (18 <= metrics["brightness"] <= 238
+                and metrics["contrast"] >= 17
+                and metrics["sharpness"] >= 2.2):
+            opening_start = candidate
+            print(f"[visual-gate] Accepted Cut #1 at {candidate:.2f}s: {metrics}")
+            break
+        print(f"[visual-gate] Rejected opening at {candidate:.2f}s: {metrics}")
+    if opening_start is None:
+        raise RuntimeError("No motion-ranked opening frame passed brightness/contrast/sharpness quality gates.")
+    cut_starts = [opening_start] + [x for x in ranked_starts if abs(x - opening_start) > 0.01]
     if len(cut_starts) < cut_count:
         for candidate in [i * segment_dur for i in range(int(source_dur // segment_dur) + 1)]:
             if candidate + segment_dur <= source_dur and all(
@@ -229,6 +288,8 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
             f"setsar=1[{label}]"
         )
     concat_inputs = "".join(cut_labels)
+    loop_seconds = 0.35
+    xfade_offset = max(0.0, target_dur - loop_seconds)
     filter_graph = (
         ";".join(cut_filters) + ";" +
         f"{concat_inputs}concat=n={cut_count}:v=1:a=0[game];"
@@ -237,7 +298,26 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         f"textfile={hook_path}:fontcolor=white:fontsize=46:box=1:"
         f"boxcolor=black@0.82:boxborderw=18:x=(w-text_w)/2:y=250:"
         f"enable='between(t,0,2.5)':alpha='if(lt(t,2.1),1,max(0,(2.5-t)/0.4))',"
-        f"ass={ass_path}[outv]"
+        f"ass={ass_path}[decorated];"
+        "[decorated]split=2[basevsrc][headvsrc];"
+        "[basevsrc]fps=30,settb=AVTB,setpts=PTS-STARTPTS,format=yuv420p[basev];"
+        "[headvsrc]trim=start=0:duration=0.35,fps=30,settb=AVTB,setpts=PTS-STARTPTS,format=yuv420p[headv];"
+        f"[basev][headv]xfade=transition=fade:duration=0.35:offset={xfade_offset:.3f}[outv];"
+        "[4:a]lowpass=f=180,volume=0.75[music];"
+        "[music][1:a]sidechaincompress=threshold=0.018:ratio=8:attack=18:release=280:makeup=1[ducked];"
+        "[1:a][ducked]amix=inputs=2:duration=first:normalize=0[voicebed];"
+        "[2:a]highpass=f=700,lowpass=f=9000,afade=t=out:st=0.16:d=0.19,volume=-12dB[impact];"
+        "[3:a]lowpass=f=140,afade=t=out:st=0.12:d=0.23,volume=-12dB[sub];"
+        "[impact][sub]amix=inputs=2:duration=longest:normalize=0[hookfx];"
+        "[voicebed][hookfx]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,"
+        "loudnorm=I=-14:TP=-1.5:LRA=11[aout];"
+        "[aout]asplit=2[abase][ahead];"
+        "[ahead]atrim=start=0:duration=0.35,asetpts=PTS-STARTPTS[aheadtrim];"
+        "[abase][aheadtrim]acrossfade=d=0.35:c1=tri:c2=tri[a_loop]"
+    )
+    music_expr = (
+        "aevalsrc=0.035*sin(2*PI*55*t)+0.018*sin(2*PI*82.41*t)+"
+        f"0.012*sin(2*PI*110*t):s=44100:d={target_dur:.3f}"
     )
     command = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
@@ -246,14 +326,9 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         "anoisesrc=color=pink:amplitude=0.12:sample_rate=44100",
         "-f", "lavfi", "-t", "0.35", "-i",
         "sine=frequency=85:sample_rate=44100",
-        "-filter_complex",
-        filter_graph + ";"
-        "[2:a]highpass=f=700,lowpass=f=9000,afade=t=out:st=0.16:d=0.19,volume=-12dB[impact];"
-        "[3:a]lowpass=f=140,afade=t=out:st=0.12:d=0.23,volume=-12dB[sub];"
-        "[impact][sub]amix=inputs=2:duration=longest:normalize=0[hookfx];"
-        "[1:a][hookfx]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,"
-        "loudnorm=I=-14:TP=-1.5:LRA=11[aout]",
-        "-map", "[outv]", "-map", "[aout]",
+        "-f", "lavfi", "-i", music_expr,
+        "-filter_complex", filter_graph,
+        "-map", "[outv]", "-map", "[a_loop]",
         "-t", str(target_dur), "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
         "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "160k",
         "-movflags", "+faststart", out_video
@@ -273,3 +348,51 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         "full-bleed 9:16 and 72px centered captions."
     )
     return out_video
+
+def run_ffmpeg_self_test():
+    """Render a synthetic 24s Short through the production FFmpeg graph."""
+    source = "/tmp/preflight_source.mp4"
+    voice = "/tmp/preflight_voice.wav"
+    output = "/tmp/preflight_render.mp4"
+    subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc2=size=720x1280:rate=30",
+        "-t", "45", "-an", "-c:v", "libx264", "-preset", "ultrafast",
+        "-crf", "30", "-pix_fmt", "yuv420p", source
+    ], check=True, timeout=240)
+    subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=24",
+        "-c:a", "pcm_s16le", voice
+    ], check=True, timeout=60)
+    script = (
+        "This impossible jump sends the car flying across the entire street. "
+        "The strange part is what happens after it lands. The suspension compresses, "
+        "the wheels recover, and the vehicle keeps moving as if nothing happened. "
+        "That tiny physics detail is why this older game still surprises players."
+    )
+    rendered = render_full_bleed_short(
+        source, script, output, top_hook="THAT LANDING WAS IMPOSSIBLE",
+        creative_angle="clip_focused", voice_audio_override=voice
+    )
+    probe = subprocess.check_output([
+        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", rendered
+    ], text=True, timeout=30).strip()
+    duration = float(subprocess.check_output([
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", rendered
+    ], text=True, timeout=30).strip())
+    if probe != "1080x1920" or not (22.0 <= duration <= 28.0):
+        raise RuntimeError(f"Preflight output invalid: size={probe}, duration={duration:.3f}s")
+    print(
+        f"FFMPEG_PREFLIGHT_OK: {rendered}; video={probe}; duration={duration:.3f}s; "
+        "filters=zoompan,drawtext,ass,sidechaincompress,amix,acrossfade,xfade,loudnorm"
+    )
+    return rendered
+
+
+if __name__ == "__main__":
+    import sys
+    if "--self-test" in sys.argv:
+        run_ffmpeg_self_test()
