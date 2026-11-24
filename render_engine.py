@@ -104,9 +104,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         choices = [color for color in PALETTE_BGR if color != last_color]
         color = random.choice(choices or PALETTE_BGR)
         last_color = color
-        phrase = " ".join(word.upper() for word in chunk)
+        phrase_parts = []
+        for word in chunk:
+            clean_word = re.sub(r"[^\w'-]", "", word).lower()
+            power_word = bool(re.search(r"\d", clean_word)) or clean_word in {
+                "crash", "crashes", "explodes", "exploded", "explosion", "burns",
+                "burning", "chase", "chased", "police", "fastest", "impossible",
+                "secret", "hidden", "survives", "survived", "breaks", "broke",
+                "launch", "launches", "impact", "smashes", "destroyed", "flips",
+                "flies", "flying", "falls", "escape", "escaped", "record"
+            }
+            color_tag = r"{\c&H0000E6FF&}" if power_word else r"{\c&H00FFFFFF&}"
+            phrase_parts.append(color_tag + word.upper())
+        phrase = " ".join(phrase_parts)
         caption = (
-            r"{\an5\pos(540,1050)\c" + color +
+            r"{\an5\pos(540,1050)" +
             r"\fscx86\fscy86\t(0,90,\fscx100\fscy100)" +
             r"\bord5\shad1\fs72}" + phrase
         )
@@ -229,8 +241,19 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     )
     command = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-        "-i", src_video, "-i", fitted_voice, "-filter_complex", filter_graph,
-        "-map", "[outv]", "-map", "1:a:0", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
+        "-i", src_video, "-i", fitted_voice,
+        "-f", "lavfi", "-t", "0.35", "-i",
+        "anoisesrc=color=pink:amplitude=0.12:sample_rate=44100",
+        "-f", "lavfi", "-t", "0.35", "-i",
+        "sine=frequency=85:sample_rate=44100",
+        "-filter_complex",
+        filter_graph + ";"
+        "[2:a]highpass=f=700,lowpass=f=9000,afade=t=out:st=0.16:d=0.19,volume=-12dB[impact];"
+        "[3:a]lowpass=f=140,afade=t=out:st=0.12:d=0.23,volume=-12dB[sub];"
+        "[impact][sub]amix=inputs=2:duration=longest:normalize=0[hookfx];"
+        "[1:a][hookfx]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,"
+        "loudnorm=I=-14:TP=-1.5:LRA=11[aout]",
+        "-map", "[outv]", "-map", "[aout]",
         "-t", str(target_dur), "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
         "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "160k",
         "-movflags", "+faststart", out_video
