@@ -7,7 +7,8 @@
     "GTA SIX IS FINALLY CONFIRMED",
     "WAITING FOR THE NEXT CHAPTER",
     "EXPLORING THE SUNNY OPEN WORLD",
-    "CHOP DISAPPEARED IN SECONDS"
+    "CHOP DISAPPEARED IN SECONDS",
+    "ONE SHOT CHANGES EVERYTHING"
   ],
   "recent_scripts": [
     {
@@ -34,6 +35,11 @@
       "source": "[GTA5]_Clip_6697.mp4",
       "script": "CHOP DISAPPEARED IN SECONDS! Even a simple walk in Los Santos can go wrong. We are out in the hills with Franklin and Chop. It starts as a peaceful hike across this dry ridge, but watch what happens next. A random cloud of grey smoke suddenly erupts exactly where the dog was standing. There is no visible projectile or warning, just a quick explosion that leaves Franklin completely alone on the hillside. Is this a rare physics glitch or did the game just break? Tell us your theories, because CHOP DISAPPEARED IN SECONDS.",
       "created_at": "2026-11-24T04:29:54.547643+00:00"
+    },
+    {
+      "source": "[GTA5]_Clip_6723.mp4",
+      "script": "ONE SHOT CHANGES EVERYTHING. We\u2019re at the Sandy Shores airfield testing the hidden physics of this red Vapid Bullet. First, Franklin aims a single pistol round at the fuel cap. One precise hit triggers a leak that eventually turns the car into a fireball. Next, we target the front tires. Watch as the wheels ignite, sending flames licking up the side of the door. Finally, we floor it down the runway to see the fire react to high speed. The way sparks trail behind burning rims is insane. ONE SHOT CHANGES EVERYTHING.",
+      "created_at": "2026-11-24T05:04:30.803929+00:00"
     }
   ],
   "used_sources": [
@@ -44,7 +50,8 @@
     "mega:[GTA5]_Clip_6697.mp4",
     "pcloud:[GTA5]_Clip_6723.mp4",
     "pcloud:[GTA6]_Clip_316.mp4",
-    "mega:[GTA5]_Clip_6697.mp4@135s"
+    "mega:[GTA5]_Clip_6697.mp4@135s",
+    "pcloud:[GTA5]_Clip_6723.mp4@45s"
   ],
   "uploaded_source_windows": [
     {
@@ -117,6 +124,15 @@
       "video_id": "l9bCqtpgR3U",
       "privacy_status": "public",
       "uploaded_at": "2026-11-24T04:30:36.772685+00:00"
+    },
+    {
+      "hash": "aaace01b5c678115cdfc0f6ad2b7cd8816e004da4e3047c104ef33d6e9cc4465",
+      "source": "[GTA5]_Clip_6723.mp4",
+      "start_second": 45.0,
+      "duration": 45.0,
+      "video_id": "VYWuYtCsBJc",
+      "privacy_status": "public",
+      "uploaded_at": "2026-11-24T05:05:24.172339+00:00"
     }
   ],
   "used_source_windows": [
@@ -126,6 +142,13 @@
       "duration": 45.0,
       "hash": "1138b8d9bf6c532743b3d8c5b430d791989901e7fe096e5cb9c39f463da43624",
       "video_id": "l9bCqtpgR3U"
+    },
+    {
+      "source": "[GTA5]_Clip_6723.mp4",
+      "start_second": 45.0,
+      "duration": 45.0,
+      "hash": "aaace01b5c678115cdfc0f6ad2b7cd8816e004da4e3047c104ef33d6e9cc4465",
+      "video_id": "VYWuYtCsBJc"
     }
   ],
   "published_source_files": [
