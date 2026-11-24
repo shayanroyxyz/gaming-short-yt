@@ -162,21 +162,6 @@ from google.auth.transport.requests import Request
 import socket
 from google import genai
 
-# Keep captions below the top hook banner on the 1080x1920 canvas.
-_ORIGINAL_BUILD_CAPTIONS = _render_engine.build_clean_ass_captions
-def _center_upper_safe_zone_captions(*args, **kwargs):
-    ass_path = _ORIGINAL_BUILD_CAPTIONS(*args, **kwargs)
-    with open(ass_path, "r", encoding="utf-8") as caption_file:
-        ass_text = caption_file.read()
-    # ASS Alignment=8 anchors captions at the top; MarginV=400 places them
-    # in the upper-center safe zone on the 1080x1920 canvas.
-    ass_text = ass_text.replace(",8,70,70,230,1", ",8,70,70,400,1")
-    with open(ass_path, "w", encoding="utf-8") as caption_file:
-        caption_file.write(ass_text)
-    return ass_path
-
-_render_engine.build_clean_ass_captions = _center_upper_safe_zone_captions
-
 MALE_US_VOICES = [
     "en-US-AndrewMultilingualNeural",
     "en-US-BrianMultilingualNeural",
@@ -472,8 +457,8 @@ def _parse_strict_ai_json(raw):
     if any(not isinstance(data.get(k), str) or not data[k].strip() for k in required):
         raise ValueError("AI JSON must contain non-empty hook, script, title, and comment strings")
     words = re.findall(r"\b[\w’'-]+\b", data["script"])
-    if not 75 <= len(words) <= 95:
-        raise ValueError(f"narration must contain 75–95 words; received {len(words)}")
+    if not 55 <= len(words) <= 68:
+        raise ValueError(f"narration must contain 55–68 words; received {len(words)}")
     if not re.search(r"[.!?][\"')\]]?$", data["script"].strip()):
         raise ValueError("narration must end with a complete sentence")
 
@@ -542,7 +527,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         "or surprising fact; narration need not describe driving. For a specific experiment, object, NPC behavior, glitch, "
         "physics test, secret, or Easter egg, choose clip_focused and narrate the visible setup through its exact payoff. "
         "Never invent what the frames show or make unsupported insider claims. "
-        "Write 75-95 spoken words, naturally paced for 30-42 seconds: immediate hook, three quick beats, cliffhanger/loop. "
+        "Write 55-68 spoken words, naturally paced for 22-27 seconds: immediate curiosity hook in the first words, rapid escalation, clear payoff, and a seamless loop ending. "
         f"Filename: {clean_name}. Focus: {focus}. Current trend context: {hype_now}. Previous angle: {previous_angle}. "
         f"Recent scripts to avoid:\\n{recent_avoid}\\n"
         f"Last 10 titles and opening hooks (avoid topic, wording, sentence shape, and hook pattern):\\n{recent_title_hooks}\\n"
@@ -828,9 +813,9 @@ if __name__ == "__main__":
              "-of", "default=noprint_wrappers=1:nokey=1", rendered_path],
             text=True, timeout=60
         ).strip())
-        if not (30.0 <= final_duration <= 45.0):
+        if not (22.0 <= final_duration <= 28.0):
             raise RuntimeError(
-                f"Rendered Short must be 30–45 seconds; got {final_duration:.2f}s. Refusing to publish."
+                f"Rendered Short must be 22–28 seconds; got {final_duration:.2f}s. Refusing to publish."
             )
         publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist, source_hash, fname, start_second, source_duration)
         with open("history.json", "w", encoding="utf-8") as history_file:
