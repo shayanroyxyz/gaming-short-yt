@@ -533,13 +533,13 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         "The script MUST contain 75-95 spoken words and narrate naturally in 30-42 seconds. "
         "Structure it as: a strong first-second hook, then three fast story/fact beats with concrete "
         "gameplay detail, then a cliffhanger or loop ending that connects back to the hook. "
-        "Do not pad the script or invent events not supported by the frames. 
+        "Do not pad the script or invent events not supported by the frames. "
         f"Filename (weak hint only): {clean_name}. Focus: {focus}. Optional trend context: {hype_now}. "
         f"Do not reuse or closely paraphrase these recent scripts:\n{recent_avoid}\n"
         "Return ONLY valid JSON with keys hook, script, title, comment, ig_caption, tags. "
         "hook: 4-6 uppercase words. script: 75-95 spoken words, natural US English, "
         "include three distinct fast-paced fact/story beats, build to a visible payoff, and finish "
-        "with a cliffhanger/loop line. The opening hook must land immediately. 
+        "with a cliffhanger/loop line. The opening hook must land immediately. "
         "Avoid generic filler. TITLE RULES: under 70 characters; write a punchy US Shorts title " +
         "built around a specific visible detail, surprising outcome, rarity, number, or direct game comparison. " +
         "Never use generic templates such as " +
