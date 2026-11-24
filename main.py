@@ -1,3 +1,4 @@
+import render_engine as _render_engine
 from render_engine import render_full_bleed_short
 # === BULLETPROOF 3-AI WATERFALL MONKEYPATCH ===
 import os as _os, requests as _req
@@ -160,6 +161,58 @@ from googleapiclient.errors import HttpError, ResumableUploadError
 from google.auth.transport.requests import Request
 import socket
 from google import genai
+
+# Keep this file as the only changed file: constrain renderer behavior at runtime.
+# Voice is normalized to a 14.2s narration, leaving 0.35s of visual tail (14.55s total).
+_ORIGINAL_SYNTHESIZE_HUMAN_VOICE = _render_engine.synthesize_human_voice
+def _bounded_synthesize_human_voice(script_text, out_mp3="/tmp/voice.mp3"):
+    mp3_path, original_duration, voice_used, boundaries = _ORIGINAL_SYNTHESIZE_HUMAN_VOICE(
+        script_text, out_mp3
+    )
+    target_audio_duration = 14.2
+    tempo = original_duration / target_audio_duration
+    if not (0.5 <= tempo <= 2.0):
+        raise RuntimeError(
+            f"Voice duration {original_duration:.2f}s cannot be fitted naturally into the 13–15s Short window."
+        )
+    fitted_path = mp3_path + ".bounded.mp3"
+    subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-i", mp3_path, "-filter:a", f"atempo={tempo:.6f}",
+        "-c:a", "libmp3lame", "-q:a", "3", fitted_path
+    ], check=True, timeout=120)
+    os.replace(fitted_path, mp3_path)
+    measured_duration = float(subprocess.check_output([
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", mp3_path
+    ], text=True, timeout=60).strip())
+    scaled_boundaries = None
+    if boundaries:
+        scaled_boundaries = [
+            {
+                **item,
+                "start": float(item.get("start", 0.0)) / tempo,
+                "duration": float(item.get("duration", 0.0)) / tempo,
+            }
+            for item in boundaries
+        ]
+    return mp3_path, measured_duration, voice_used, scaled_boundaries
+
+_render_engine.synthesize_human_voice = _bounded_synthesize_human_voice
+
+_ORIGINAL_BUILD_CAPTIONS = _render_engine.build_clean_ass_captions
+def _center_upper_safe_zone_captions(*args, **kwargs):
+    ass_path = _ORIGINAL_BUILD_CAPTIONS(*args, **kwargs)
+    with open(ass_path, "r", encoding="utf-8") as caption_file:
+        ass_text = caption_file.read()
+    # ASS Alignment=8 anchors captions at the top; MarginV=410 places them
+    # around y=410 on the 1080x1920 canvas, below the top hook banner.
+    ass_text = ass_text.replace(",8,70,70,230,1", ",8,70,70,410,1")
+    with open(ass_path, "w", encoding="utf-8") as caption_file:
+        caption_file.write(ass_text)
+    return ass_path
+
+_render_engine.build_clean_ass_captions = _center_upper_safe_zone_captions
 
 MALE_US_VOICES = [
     "en-US-AndrewMultilingualNeural",
@@ -392,6 +445,24 @@ def _parse_strict_ai_json(raw):
         raise ValueError(f"narration must contain 32–38 words; received {len(words)}")
     if not re.search(r"[.!?][\"')\]]?$", data["script"].strip()):
         raise ValueError("narration must end with a complete sentence")
+
+    title = data["title"].strip()
+    if len(title) > 70:
+        raise ValueError(f"title must be 70 characters or fewer; received {len(title)}")
+    generic_title = re.compile(
+        r"\b(?:tracking leads through the city|from the beach|pushing physics|"
+        r"gaming moments|epic gameplay|crazy gameplay|a day in|exploring the city)\b",
+        re.IGNORECASE
+    )
+    curiosity_hook = re.compile(
+        r"\b(?:\d+|secret|hidden|rarest|easter egg|why|how|never|actually|"
+        r"still|vs\.?|beat|forgotten|only|impossible|mystery|truth|most)\b",
+        re.IGNORECASE
+    )
+    if generic_title.search(title):
+        raise ValueError("title is generic/banned; write a specific gameplay-based curiosity hook")
+    if not curiosity_hook.search(title):
+        raise ValueError("title must include a specific curiosity trigger, comparison, secret, or number")
     return data
 
 def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
@@ -431,9 +502,15 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         f"Filename (weak hint only): {clean_name}. Focus: {focus}. Optional trend context: {hype_now}. "
         f"Do not reuse or closely paraphrase these recent scripts:\n{recent_avoid}\n"
         "Return ONLY valid JSON with keys hook, script, title, comment, ig_caption, tags. "
-        "hook: 4-6 uppercase words. script: 32-38 spoken words, natural US English, "
+        "hook: 4-6 uppercase words. script: exactly 32-38 spoken words, natural US English, "
         "describe visible gameplay evidence and payoff, complete final sentence. "
-        "Avoid generic filler. title under 70 characters; comment one short question; "
+        "Avoid generic filler. TITLE RULES: under 70 characters; never use vague templates such as " +
+        "'Tracking Leads Through the City', 'From the Beach', or 'Pushing Physics'. " +
+        "Write a specific, truthful US Shorts curiosity title grounded in visible gameplay; " +
+        "include a concrete number, secret/hidden detail, rare discovery, or clear comparison " +
+        "(examples of style only: 'Rockstar Hid This GTA 6 Secret in Plain Sight', " +
+        "'Why GTA 4 Physics Still Beat GTA 5'). Never invent a secret or claim not supported by frames. " +
+        "comment one short question; "
         "ig_caption short; tags array. No markdown fences."
     )
     parts = [{"text": prompt}]
@@ -468,7 +545,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     if data is None:
         raise RuntimeError("Gameplay-aware script generation failed; refusing to publish. " + " | ".join(errors[-4:]))
 
-    title = data["title"].strip()[:85]
+    title = data["title"].strip()
     hook = data["hook"].replace("'", "").replace('"', "").strip()
     script = data["script"].strip()
     comment = data["comment"].strip()
@@ -700,8 +777,10 @@ if __name__ == "__main__":
              "-of", "default=noprint_wrappers=1:nokey=1", rendered_path],
             text=True, timeout=60
         ).strip())
-        if not (1.0 < final_duration < 180.0):
-            raise RuntimeError(f"Rendered Short duration is outside the expected range: {final_duration:.2f}s")
+        if not (13.0 <= final_duration <= 15.0):
+            raise RuntimeError(
+                f"Rendered Short must be 13–15 seconds; got {final_duration:.2f}s. Refusing to publish."
+            )
         publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist, source_hash, fname, start_second, source_duration)
         with open("history.json", "w", encoding="utf-8") as history_file:
             json.dump({"used_windows": hist.get("used_windows", [])[-400:],
