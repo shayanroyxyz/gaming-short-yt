@@ -24,42 +24,26 @@ def tune_daily_analytics(config, history):
             pass
 
     config["analytics_last_attempt_at"] = now.isoformat()
-    required = ("YOUTUBE_REFRESH_TOKEN", "YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET")
-    missing = [name for name in required if not os.environ.get(name, "").strip()]
-    if missing:
-        config["analytics_last_error"] = "Missing OAuth environment variables: " + ", ".join(missing)
+    api_key = (os.environ.get("YOUTUBE_API_KEY", "").strip()
+               or os.environ.get("GEMINI_API_KEY", "").strip())
+    if not api_key:
+        config["analytics_last_error"] = "Missing YOUTUBE_API_KEY (or fallback GEMINI_API_KEY)."
         print("[analytics] Skipped: " + config["analytics_last_error"])
         return False
 
     try:
-        credentials = Credentials(
-            token=None,
-            refresh_token=os.environ["YOUTUBE_REFRESH_TOKEN"],
-            client_id=os.environ["YOUTUBE_CLIENT_ID"],
-            client_secret=os.environ["YOUTUBE_CLIENT_SECRET"],
-            token_uri="https://oauth2.googleapis.com/token"
-        )
-        credentials.refresh(Request())
-        youtube = build("youtube", "v3", credentials=credentials, cache_discovery=False)
-
-        channel_response = youtube.channels().list(
-            part="contentDetails", mine=True, maxResults=1
-        ).execute()
-        channels = channel_response.get("items", [])
-        if not channels:
-            raise RuntimeError("YouTube API returned no channel for the current OAuth identity.")
-        uploads_playlist = channels[0]["contentDetails"]["relatedPlaylists"]["uploads"]
-
-        playlist_response = youtube.playlistItems().list(
-            part="contentDetails", playlistId=uploads_playlist, maxResults=20
-        ).execute()
-        video_ids = [
-            item.get("contentDetails", {}).get("videoId")
-            for item in playlist_response.get("items", [])
-        ]
-        video_ids = [video_id for video_id in video_ids if video_id]
+        youtube = build("youtube", "v3", developerKey=api_key, cache_discovery=False)
+        video_ids = []
+        for bucket in ("uploaded_source_windows", "used_source_windows"):
+            for entry in history.get(bucket, []):
+                if isinstance(entry, dict) and entry.get("video_id"):
+                    video_ids.append(str(entry["video_id"]))
+        for entry in history.get("recent_creative_entries", []):
+            if isinstance(entry, dict) and entry.get("video_id"):
+                video_ids.append(str(entry["video_id"]))
+        video_ids = list(dict.fromkeys(video_ids))[-50:]
         if not video_ids:
-            raise RuntimeError("No recent uploads were returned by the uploads playlist.")
+            raise RuntimeError("No previously uploaded video IDs are stored in history.json.")
 
         videos_response = youtube.videos().list(
             part="snippet,statistics", id=",".join(video_ids), maxResults=50
@@ -78,30 +62,23 @@ def tune_daily_analytics(config, history):
             likes = int(stats.get("likeCount", 0) or 0)
             comments = int(stats.get("commentCount", 0) or 0)
             like_ratio = likes / max(views, 1)
-            # Engagement-weighted ranking, not a claim of algorithmic virality.
             score = views * (1.0 + min(like_ratio, 0.25) * 4.0) + likes * 2 + comments * 20
             video_id = item.get("id", "")
             creative = creative_by_video.get(video_id, {})
             ranked.append({
-                "video_id": video_id,
-                "title": snippet.get("title", ""),
-                "hook": creative.get("hook", ""),
-                "angle": creative.get("angle", ""),
-                "views": views,
-                "likes": likes,
-                "comments": comments,
-                "like_ratio": round(like_ratio, 5),
-                "score": round(score, 2),
+                "video_id": video_id, "title": snippet.get("title", ""),
+                "hook": creative.get("hook", ""), "angle": creative.get("angle", ""),
+                "views": views, "likes": likes, "comments": comments,
+                "like_ratio": round(like_ratio, 5), "score": round(score, 2),
             })
 
+        if not ranked:
+            raise RuntimeError("YouTube Data API returned no accessible public videos for saved IDs.")
         ranked.sort(key=lambda row: row["score"], reverse=True)
         config["winning_examples"] = ranked[:3]
         config["analytics_last_success_at"] = now.isoformat()
         config.pop("analytics_last_error", None)
-        print(
-            f"[analytics] Refreshed {len(ranked)} recent uploads; "
-            f"saved {len(config['winning_examples'])} measured winning examples."
-        )
+        print(f"[analytics] Refreshed {len(ranked)} saved public video IDs; saved top {len(config['winning_examples'])}.")
         return True
     except Exception as exc:
         config["analytics_last_error"] = f"{type(exc).__name__}: {exc}"
