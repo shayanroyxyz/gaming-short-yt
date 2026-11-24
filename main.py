@@ -175,7 +175,7 @@ def _gemini_generate(api_key, parts, generation_config=None):
                 candidates = response.json().get("candidates", [])
                 if candidates:
                     text_parts = candidates[0].get("content", {}).get("parts", [])
-                    generated = "\\n".join(p.get("text", "") for p in text_parts if p.get("text"))
+                    generated = "\n".join(p.get("text", "") for p in text_parts if p.get("text"))
                     if generated.strip():
                         return model, generated.strip()
                 break
@@ -188,11 +188,11 @@ def _gemini_generate(api_key, parts, generation_config=None):
 
 def _repair_title(title, game_label="GTA"):
     """Sanitize title text and guarantee a concise curiosity trigger."""
-    value = re.sub(r"\\s+", " ", str(title or "")).strip(" \\t\\r\\n-—:|")
-    value = re.sub(r"[<>\\[\\]{}]", "", value)
+    value = re.sub(r"\s+", " ", str(title or "")).strip(" \t\r\n-—:|")
+    value = re.sub(r"[<>\[\]{}]", "", value)
     banned = re.compile(
-        r"\\b(?:tracking leads through the city|from the beach|pushing physics|"
-        r"gaming moments|epic gameplay|crazy gameplay|a day in|exploring the city)\\b",
+        r"\b(?:tracking leads through the city|from the beach|pushing physics|"
+        r"gaming moments|epic gameplay|crazy gameplay|a day in|exploring the city)\b",
         re.IGNORECASE
     )
     if banned.search(value):
@@ -200,8 +200,8 @@ def _repair_title(title, game_label="GTA"):
     if not value:
         value = f"{game_label}: What Happens Next?"
     trigger = re.compile(
-        r"\\b(?:\\d+|secret|hidden|rarest|easter egg|why|how|never|actually|"
-        r"still|vs\\.?|beat|forgotten|only|impossible|mystery|truth|most|next)\\b",
+        r"\b(?:\d+|secret|hidden|rarest|easter egg|why|how|never|actually|"
+        r"still|vs\.?|beat|forgotten|only|impossible|mystery|truth|most|next)\b",
         re.IGNORECASE
     )
     if not trigger.search(value):
@@ -213,7 +213,7 @@ def _repair_title(title, game_label="GTA"):
 def _offline_package(fname, focus):
     """Conservative last-resort narration; makes no claims about unseen gameplay details."""
     stem = os.path.splitext(os.path.basename(fname))[0]
-    match = re.search(r"\\[(.*?)\\]", stem)
+    match = re.search(r"\[(.*?)\]", stem)
     game = (match.group(1).replace("6", " 6").strip() if match else "Gaming")
     game = re.sub(r"[^A-Za-z0-9 ]", " ", game).strip() or "Gaming"
     script = (
@@ -223,7 +223,7 @@ def _offline_package(fname, focus):
         "Watch the details, notice how the moment unfolds, and decide what stands out most. "
         "That unpredictability is the reason these games are still worth revisiting."
     )
-    words = re.findall(r"\\b[\\w’'-]+\\b", script)
+    words = re.findall(r"\b[\w’'-]+\b", script)
     if len(words) < 55:
         script += " Every playthrough can feel a little different."
     return {
