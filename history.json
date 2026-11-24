@@ -10,7 +10,8 @@
     "CHOP DISAPPEARED IN SECONDS",
     "ONE SHOT CHANGES EVERYTHING",
     "TRUCK DRIVES ON OCEAN FLOOR",
-    "FIRE CANNOT STOP THIS"
+    "FIRE CANNOT STOP THIS",
+    "Dart hit leads to abduction"
   ],
   "recent_scripts": [
     {
@@ -52,6 +53,21 @@
       "source": "[GTA5]_Clip_6734.mp4",
       "script": "FIRE CANNOT STOP THIS. We are testing vehicle survival at Del Perro beach while the world waits for GTA Six. This white sports car is completely engulfed in flames, yet the engine keeps roaring. We\u2019re tearing through the sand, leaving thick smoke right under the Ferris wheel. Instead of jumping out, we\u2019re aiming for a tiny tide pool. Watch the physics kick in. One splash into the water and the fire is instantly extinguished. It\u2019s a total save. Will the next game have even better physics? Let us know, because FIRE CANNOT STOP THIS.",
       "created_at": "2026-11-24T12:29:05.582384+00:00"
+    },
+    {
+      "source": "[GTA6]_Clip_316.mp4",
+      "script": "Dart hit leads to abduction in this intense GTA mission. You are suddenly tranquilized in the field, blacking out instantly. When consciousness returns, you are trapped inside a mysterious red-lit shipping container. A voice commands you to rise and shine, leaving you with only one option: kick the heavy door until you break free. Will you escape this confined nightmare before time runs out?",
+      "created_at": "2026-11-24T23:29:54.837636+00:00"
+    }
+  ],
+  "recent_creative_entries": [
+    {
+      "title": "Abducted in GTA: The Dart Trap Mystery?",
+      "hook": "Dart hit leads to abduction",
+      "angle": "clip_focused",
+      "created_at": "2026-11-24T23:29:54.837615+00:00",
+      "video_id": "Bp-PXdt24Q4",
+      "source_key": "pcloud:[GTA6]_Clip_316.mp4"
     }
   ],
   "used_sources": [
@@ -65,7 +81,8 @@
     "mega:[GTA5]_Clip_6697.mp4@135s",
     "pcloud:[GTA5]_Clip_6723.mp4@45s",
     "pcloud:[GTA5]_Clip_6723.mp4@135s",
-    "pcloud:[GTA5]_Clip_6734.mp4@90s"
+    "pcloud:[GTA5]_Clip_6734.mp4@90s",
+    "pcloud:[GTA6]_Clip_316.mp4@1485s"
   ],
   "uploaded_source_windows": [
     {
@@ -165,6 +182,15 @@
       "video_id": "zZR4mmpQopU",
       "privacy_status": "public",
       "uploaded_at": "2026-11-24T12:31:05.789844+00:00"
+    },
+    {
+      "hash": "888389b1a88ff440593df2fd6116cc6dec45f7225ce7a3bf3db1fc89da4bdfd7",
+      "source": "pcloud:[GTA6]_Clip_316.mp4",
+      "start_second": 1485.0,
+      "duration": 45.0,
+      "video_id": "Bp-PXdt24Q4",
+      "privacy_status": "public",
+      "uploaded_at": "2026-11-24T23:30:48.032948+00:00"
     }
   ],
   "used_source_windows": [
@@ -195,6 +221,13 @@
       "duration": 45.0,
       "hash": "c55a0487ecfa20fde25f0b658d30f4b572ae4ca64be41a732885182d8e3fbe0d",
       "video_id": "zZR4mmpQopU"
+    },
+    {
+      "source": "pcloud:[GTA6]_Clip_316.mp4",
+      "start_second": 1485.0,
+      "duration": 45.0,
+      "hash": "888389b1a88ff440593df2fd6116cc6dec45f7225ce7a3bf3db1fc89da4bdfd7",
+      "video_id": "Bp-PXdt24Q4"
     }
   ],
   "published_source_files": [
@@ -204,6 +237,7 @@
     "[GTA5]_Clip_6734.mp4",
     "[GTA5]_Clip_6697.mp4",
     "[GTA5]_Clip_6723.mp4",
-    "[GTA6]_Clip_316.mp4"
+    "[GTA6]_Clip_316.mp4",
+    "pcloud:[GTA6]_Clip_316.mp4"
   ]
 }
