@@ -884,6 +884,7 @@ if __name__ == "__main__":
                 json.dump(cfg, config_file, indent=2)
         except Exception as analytics_error:
             print(f"[analytics] Non-fatal tuner error: {type(analytics_error).__name__}: {analytics_error}")
+        hist["winning_examples"] = cfg.get("winning_examples", [])
         fname, local_clip, source_hash, start_second, source_duration, source_key = stream_unique_action_clips(hist, focus)
         title, top_hook, script, first_comment, ig_caption, tags, creative_angle = generate_viral_package(fname, hist, focus, local_clip)
         rendered_path = render_full_bleed_short(local_clip, script, "final.mp4", top_hook=top_hook, creative_angle=creative_angle)
