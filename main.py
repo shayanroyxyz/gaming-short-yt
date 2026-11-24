@@ -162,44 +162,7 @@ from google.auth.transport.requests import Request
 import socket
 from google import genai
 
-# Keep this file as the only changed file: constrain renderer behavior at runtime.
-# Voice is normalized to a 14.2s narration, leaving 0.35s of visual tail (14.55s total).
-_ORIGINAL_SYNTHESIZE_HUMAN_VOICE = _render_engine.synthesize_human_voice
-def _bounded_synthesize_human_voice(script_text, out_mp3="/tmp/voice.mp3"):
-    mp3_path, original_duration, voice_used, boundaries = _ORIGINAL_SYNTHESIZE_HUMAN_VOICE(
-        script_text, out_mp3
-    )
-    target_audio_duration = 14.2
-    tempo = original_duration / target_audio_duration
-    if not (0.5 <= tempo <= 2.0):
-        raise RuntimeError(
-            f"Voice duration {original_duration:.2f}s cannot be fitted naturally into the 13–15s Short window."
-        )
-    fitted_path = mp3_path + ".bounded.mp3"
-    subprocess.run([
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-        "-i", mp3_path, "-filter:a", f"atempo={tempo:.6f}",
-        "-c:a", "libmp3lame", "-q:a", "3", fitted_path
-    ], check=True, timeout=120)
-    os.replace(fitted_path, mp3_path)
-    measured_duration = float(subprocess.check_output([
-        "ffprobe", "-v", "error", "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1", mp3_path
-    ], text=True, timeout=60).strip())
-    scaled_boundaries = None
-    if boundaries:
-        scaled_boundaries = [
-            {
-                **item,
-                "start": float(item.get("start", 0.0)) / tempo,
-                "duration": float(item.get("duration", 0.0)) / tempo,
-            }
-            for item in boundaries
-        ]
-    return mp3_path, measured_duration, voice_used, scaled_boundaries
-
-_render_engine.synthesize_human_voice = _bounded_synthesize_human_voice
-
+# Keep captions below the top hook banner on the 1080x1920 canvas.
 _ORIGINAL_BUILD_CAPTIONS = _render_engine.build_clean_ass_captions
 def _center_upper_safe_zone_captions(*args, **kwargs):
     ass_path = _ORIGINAL_BUILD_CAPTIONS(*args, **kwargs)
@@ -339,7 +302,7 @@ def ask_ai_brain(prompt):
     raise RuntimeError("No AI API key succeeded.")
 
 def stream_unique_action_clips(hist, focus):
-    """Download a cloud source and extract a fresh, non-overlapping 20-second window."""
+    """Download a cloud source and extract a fresh, non-overlapping 45-second window."""
     conf = os.environ.get("RCLONE_CONF", "").strip()
     if not conf:
         raise RuntimeError("Missing RCLONE_CONF secret.")
@@ -368,7 +331,7 @@ def stream_unique_action_clips(hist, focus):
         raise RuntimeError(f"No source clips available in MEGA/pCloud GTA_Clips ({detail}).")
 
     # Probe each cloud source's duration before selecting it. Candidate starts
-    # are spaced 30s apart; each extracted scene window is 20s long.
+    # are spaced 45s apart; each extracted scene window is 45s long.
     random.shuffle(pool)
     focus_key = str(focus or "auto").lower()
     focused_pool = [(r, n) for r, n in pool if focus_key != "auto" and focus_key in n.lower()]
@@ -376,7 +339,7 @@ def stream_unique_action_clips(hist, focus):
         pool = focused_pool + [item for item in pool if item not in focused_pool]
 
     uploaded_entries = [
-        entry for entry in hist.get("uploaded_source_windows", [])
+        entry for entry in (hist.get("uploaded_source_windows", []) + hist.get("used_source_windows", []))
         if isinstance(entry, dict)
     ]
     used_sources = hist.setdefault("used_sources", [])
@@ -414,8 +377,8 @@ def stream_unique_action_clips(hist, focus):
             duration = float(duration_text)
         except (TypeError, ValueError):
             raise RuntimeError(f"ffprobe returned an invalid source duration for {fname}: {duration_text!r}")
-        if duration < 20.0 or duration >= 86400:
-            print(f">> Skipping {fname}: duration {duration:.2f}s is too short for a 20s window.")
+        if duration < 45.0 or duration >= 86400:
+            print(f">> Skipping {fname}: duration {duration:.2f}s is too short for a 45s window.")
             continue
 
         # Include remote in the history key so same-named files in MEGA and
@@ -431,11 +394,11 @@ def stream_unique_action_clips(hist, focus):
                 except (TypeError, ValueError):
                     continue
 
-        window_count = int((duration - 20.0) // 30.0) + 1
-        candidate_starts = [float(i * 30) for i in range(window_count)]
+        window_count = int((duration - 45.0) // 45.0) + 1
+        candidate_starts = [float(i * 45) for i in range(window_count)]
         available_starts = [
             start for start in candidate_starts
-            if all(abs(start - used_start) >= 30.0 for used_start in starts_used)
+            if all(abs(start - used_start) >= 45.0 for used_start in starts_used)
         ]
         used_count = len(candidate_starts) - len(available_starts)
         used_ratio = used_count / max(1, window_count)
@@ -450,7 +413,7 @@ def stream_unique_action_clips(hist, focus):
     if chosen is None:
         details = "; ".join(exhausted_files[:5])
         raise RuntimeError(
-            "No unused 20-second source windows remain in the cloud pool; "
+            "No unused 45-second source windows remain in the cloud pool; 
             f"files are only exhausted after >85% of their candidate windows are used. {details}"
         )
 
@@ -462,7 +425,7 @@ def stream_unique_action_clips(hist, focus):
         [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
             "-ss", f"{start_second:.3f}", "-i", local_full,
-            "-t", "20", "-map", "0:v:0", "-map", "0:a?",
+            "-t", "45", "-map", "0:v:0", "-map", "0:a?",
             "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
             "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
@@ -471,7 +434,7 @@ def stream_unique_action_clips(hist, focus):
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=240
     )
     if not os.path.isfile(local_clip) or os.path.getsize(local_clip) < 100_000:
-        raise RuntimeError(f"Could not extract selected 20-second gameplay window from {fname}.")
+        raise RuntimeError(f"Could not extract selected 45-second gameplay window from {fname}.")
 
     window_duration_text = subprocess.check_output(
         [
@@ -481,24 +444,24 @@ def stream_unique_action_clips(hist, focus):
         text=True, stderr=subprocess.PIPE, timeout=60
     ).strip()
     window_duration = float(window_duration_text)
-    if not (19.0 <= window_duration <= 20.5):
+    if not (44.0 <= window_duration <= 45.5):
         raise RuntimeError(f"Extracted gameplay window has invalid duration: {window_duration:.2f}s")
 
-    source_hash = source_window_hash(source_key, start_second, 20.0)
+    source_hash = source_window_hash(source_key, start_second, 45.0)
     uploaded_hashes = {
         entry.get("hash") for entry in uploaded_entries if entry.get("hash")
     }
     if source_hash in uploaded_hashes:
-        raise RuntimeError(f"Duplicate 20-second source window detected: {source_key} at {start_second:.0f}s")
+        raise RuntimeError(f"Duplicate 45-second source window detected: {source_key} at {start_second:.0f}s")
 
     used_sources.append(f"{source_key}@{start_second:.0f}s")
     hist["used_sources"] = used_sources[-500:]
     print(
         f">> Fresh window selected: {source_key} at {start_second:.0f}s "
-        f"(20s window; source duration {source_duration:.1f}s; "
+        f"(45s window; source duration {source_duration:.1f}s; "
         f"{len(starts_used)} prior windows recorded)."
     )
-    return fname, local_clip, source_hash, start_second, 20.0
+    return fname, local_clip, source_hash, start_second, 45.0
 
 def _parse_strict_ai_json(raw):
     cleaned = re.sub(r"^\s*\x60{3}(?:json)?\s*|\s*\x60{3}\s*$", "", str(raw).strip(), flags=re.IGNORECASE)
@@ -509,8 +472,8 @@ def _parse_strict_ai_json(raw):
     if any(not isinstance(data.get(k), str) or not data[k].strip() for k in required):
         raise ValueError("AI JSON must contain non-empty hook, script, title, and comment strings")
     words = re.findall(r"\b[\w’'-]+\b", data["script"])
-    if not 32 <= len(words) <= 38:
-        raise ValueError(f"narration must contain 32–38 words; received {len(words)}")
+    if not 75 <= len(words) <= 95:
+        raise ValueError(f"narration must contain 75–95 words; received {len(words)}")
     if not re.search(r"[.!?][\"')\]]?$", data["script"].strip()):
         raise ValueError("narration must end with a complete sentence")
 
@@ -546,7 +509,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     ).strip()
     duration = max(1.0, float(duration_text))
     frame_paths = []
-    for index, fraction in enumerate((0.20, 0.50, 0.80), start=1):
+    for index, fraction in enumerate((0.12, 0.36, 0.64, 0.88), start=1):
         frame_path = f"/tmp/gameplay_frame_{index}.jpg"
         timestamp = min(max(0.0, duration * fraction), max(0.0, duration - 0.1))
         subprocess.run(
@@ -567,14 +530,16 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         "Write a high-retention US gaming YouTube Short based ONLY on the attached sampled gameplay frames. "
         "Infer only visible events; never invent actions, outcomes, characters, or mechanics. "
         "If ambiguous, describe only what is certain. "
-        "The script MUST be exactly 32-38 spoken words and sound natural at a 13-15 second pace. "
-        "Open with an immediate curiosity hook, deliver a specific visual payoff, and end cleanly "
-        "so the final line can loop naturally into the opening. "
+        "The script MUST contain 75-95 spoken words and narrate naturally in 30-42 seconds. "
+        "Structure it as: a strong first-second hook, then three fast story/fact beats with concrete "
+        "gameplay detail, then a cliffhanger or loop ending that connects back to the hook. "
+        "Do not pad the script or invent events not supported by the frames. 
         f"Filename (weak hint only): {clean_name}. Focus: {focus}. Optional trend context: {hype_now}. "
         f"Do not reuse or closely paraphrase these recent scripts:\n{recent_avoid}\n"
         "Return ONLY valid JSON with keys hook, script, title, comment, ig_caption, tags. "
-        "hook: 4-6 uppercase words. script: exactly 32-38 spoken words, natural US English, "
-        "describe visible gameplay evidence and payoff, complete final sentence. "
+        "hook: 4-6 uppercase words. script: 75-95 spoken words, natural US English, "
+        "include three distinct fast-paced fact/story beats, build to a visible payoff, and finish "
+        "with a cliffhanger/loop line. The opening hook must land immediately. 
         "Avoid generic filler. TITLE RULES: under 70 characters; write a punchy US Shorts title " +
         "built around a specific visible detail, surprising outcome, rarity, number, or direct game comparison. " +
         "Never use generic templates such as " +
@@ -796,6 +761,11 @@ def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist
         "uploaded_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
     })
     hist["uploaded_source_windows"] = hist["uploaded_source_windows"][-500:]
+    used_window_records = hist.setdefault("used_source_windows", [])
+    used_window_records.append({"source": source_filename, "start_second": float(start_second),
+                                "duration": float(source_duration), "hash": source_hash,
+                                "video_id": vid_id})
+    hist["used_source_windows"] = used_window_records[-500:]
     published_files = hist.setdefault("published_source_files", [])
     if source_filename not in published_files:
         published_files.append(source_filename)
@@ -850,9 +820,9 @@ if __name__ == "__main__":
              "-of", "default=noprint_wrappers=1:nokey=1", rendered_path],
             text=True, timeout=60
         ).strip())
-        if not (13.0 <= final_duration <= 15.0):
+        if not (30.0 <= final_duration <= 45.0):
             raise RuntimeError(
-                f"Rendered Short must be 13–15 seconds; got {final_duration:.2f}s. Refusing to publish."
+                f"Rendered Short must be 30–45 seconds; got {final_duration:.2f}s. Refusing to publish."
             )
         publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist, source_hash, fname, start_second, source_duration)
         with open("history.json", "w", encoding="utf-8") as history_file:
@@ -861,6 +831,7 @@ if __name__ == "__main__":
                        "recent_scripts": hist.get("recent_scripts", [])[-30:],
                        "used_sources": hist.get("used_sources", [])[-100:],
                        "uploaded_source_windows": hist.get("uploaded_source_windows", [])[-500:],
+                       "used_source_windows": hist.get("used_source_windows", [])[-500:],
                        "published_source_files": hist.get("published_source_files", [])[-1000:]},
                       history_file, indent=2)
         with open("config.json", "w", encoding="utf-8") as config_file:
