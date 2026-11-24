@@ -335,65 +335,55 @@ def stream_unique_action_clips(hist, focus):
         ext = os.path.splitext(fname)[1].lower()
         if ext not in (".mp4", ".mkv", ".webm"):
             continue
-        source_path = f"{remote}:GTA_Clips/{fname}"
-        local_full = os.path.join("/tmp", f"gta_source_full{ext}")
-        if os.path.exists(local_full):
-            os.remove(local_full)
-        print(f">> Downloading selected source from {remote}: {fname}")
-        subprocess.run(
-            [
-                "rclone", "copyto", source_path, local_full,
-                "--retries", "3", "--low-level-retries", "5",
-                "--timeout", "90s", "--contimeout", "30s"
-            ],
-            check=True, capture_output=True, text=True, timeout=540
-        )
-        if not os.path.isfile(local_full) or os.path.getsize(local_full) < 100_000:
-            raise RuntimeError("Cloud download completed without a valid local video file.")
-
-        duration_text = subprocess.check_output(
-            [
-                "ffprobe", "-v", "error", "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1", local_full
-            ],
-            text=True, stderr=subprocess.PIPE, timeout=60
-        ).strip()
-        try:
-            duration = float(duration_text)
-        except (TypeError, ValueError):
-            raise RuntimeError(f"ffprobe returned an invalid source duration for {fname}: {duration_text!r}")
-        if duration < 45.0 or duration >= 86400:
-            print(f">> Skipping {fname}: duration {duration:.2f}s is too short for a 45s window.")
-            continue
-
-        # Include remote in the history key so same-named files in MEGA and
-        # pCloud are tracked independently. Legacy entries keyed by filename
-        # are also honored for backward compatibility.
         source_key = f"{remote}:{fname}"
-        starts_used = []
-        for entry in uploaded_entries:
-            entry_source = str(entry.get("source", ""))
-            if entry_source in (fname, source_key):
-                try:
-                    starts_used.append(float(entry.get("start_second", 0.0)))
-                except (TypeError, ValueError):
-                    continue
-
-        window_count = int((duration - 45.0) // 45.0) + 1
-        candidate_starts = [float(i * 45) for i in range(window_count)]
-        available_starts = [
-            start for start in candidate_starts
-            if all(abs(start - used_start) >= 45.0 for used_start in starts_used)
-        ]
-        used_count = len(candidate_starts) - len(available_starts)
-        used_ratio = used_count / max(1, window_count)
-        if used_ratio > 0.85 or not available_starts:
-            exhausted_files.append(f"{fname} ({used_ratio:.0%} used)")
+        local_full = os.path.join("/tmp", f"gta_source_{remote}_{hashlib.sha1(fname.encode('utf-8')).hexdigest()[:10]}{ext}")
+        try:
+            if os.path.exists(local_full):
+                os.remove(local_full)
+            print(f">> Downloading selected source from {remote}: {fname}")
+            subprocess.run(
+                ["rclone", "copyto", f"{remote}:GTA_Clips/{fname}", local_full,
+                 "--retries", "3", "--low-level-retries", "5",
+                 "--timeout", "90s", "--contimeout", "30s"],
+                check=True, capture_output=True, text=True, timeout=540
+            )
+            if not os.path.isfile(local_full) or os.path.getsize(local_full) < 100_000:
+                raise RuntimeError("download did not produce a valid local video file")
+            duration_text = subprocess.check_output(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", local_full],
+                text=True, stderr=subprocess.PIPE, timeout=60
+            ).strip()
+            duration = float(duration_text)
+            if not (45.0 <= duration < 86400):
+                print(f">> Skipping {source_key}: invalid/short duration {duration:.2f}s.")
+                continue
+            starts_used = []
+            for entry in uploaded_entries:
+                entry_source = str(entry.get("source", ""))
+                if entry_source in (fname, source_key):
+                    try:
+                        starts_used.append(float(entry.get("start_second", 0.0)))
+                    except (TypeError, ValueError):
+                        continue
+            window_count = int((duration - 45.0) // 45.0) + 1
+            candidate_starts = [float(i * 45) for i in range(window_count)]
+            available_starts = [
+                start for start in candidate_starts
+                if all(abs(start - used_start) >= 45.0 for used_start in starts_used)
+            ]
+            used_count = len(candidate_starts) - len(available_starts)
+            used_ratio = used_count / max(1, window_count)
+            if used_ratio > 0.85 or not available_starts:
+                exhausted_files.append(f"{source_key} ({used_ratio:.0%} used)")
+                continue
+            start_second = random.choice(available_starts)
+            chosen = (remote, fname, local_full, duration, start_second, source_key, starts_used)
+            break
+        except Exception as exc:
+            print(f"⚠️ Cloud source skipped; trying next source: {source_key}: {type(exc).__name__}: {exc}")
+            exhausted_files.append(f"{source_key} (source error: {type(exc).__name__})")
             continue
-
-        start_second = random.choice(available_starts)
-        chosen = (remote, fname, local_full, duration, start_second, source_key)
-        break
 
     if chosen is None:
         details = "; ".join(exhausted_files[:5])
@@ -402,7 +392,7 @@ def stream_unique_action_clips(hist, focus):
             f"files are only exhausted after >85% of their candidate windows are used. {details}"
         )
 
-    remote, fname, local_full, source_duration, start_second, source_key = chosen
+    remote, fname, local_full, source_duration, start_second, source_key, starts_used = chosen
     local_clip = "/tmp/gta_source_window.mp4"
     if os.path.exists(local_clip):
         os.remove(local_clip)
@@ -446,7 +436,7 @@ def stream_unique_action_clips(hist, focus):
         f"(45s window; source duration {source_duration:.1f}s; "
         f"{len(starts_used)} prior windows recorded)."
     )
-    return fname, local_clip, source_hash, start_second, 45.0
+    return fname, local_clip, source_hash, start_second, 45.0, source_key
 
 def _parse_strict_ai_json(raw):
     cleaned = re.sub(r"^\s*\x60{3}(?:json)?\s*|\s*\x60{3}\s*$", "", str(raw).strip(), flags=re.IGNORECASE)
@@ -489,11 +479,53 @@ def _parse_strict_ai_json(raw):
         raise ValueError("title must include a specific curiosity trigger, comparison, secret, or number")
     return data
 
+def _generate_text_fallback(prompt, provider):
+    """Free text-only fallback when Gemini's visual endpoint is unavailable."""
+    if provider == "groq":
+        key = os.environ.get("GROQ_API_KEY", "").strip()
+        if not key:
+            return None
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={"model": "llama-3.3-70b-versatile",
+                  "messages": [{"role": "user", "content": prompt}], "temperature": 0.8},
+            timeout=35
+        )
+    elif provider == "openrouter":
+        key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+        if not key:
+            return None
+        response = None
+        for model in ("qwen/qwen-2.5-72b-instruct:free", "deepseek/deepseek-chat:free",
+                      "meta-llama/llama-3.3-70b-instruct:free"):
+            try:
+                candidate = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.8},
+                    timeout=35
+                )
+                if candidate.status_code == 200:
+                    response = candidate
+                    break
+            except requests.RequestException:
+                continue
+        if response is None:
+            return None
+    else:
+        return None
+    if response.status_code != 200:
+        print(f"{provider} fallback HTTP {response.status_code}: {response.text[:160]}")
+        return None
+    return response.json()["choices"][0]["message"]["content"].strip()
+
+
 def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     """Use sampled frames from the actual source clip; fail closed if visual analysis is unavailable."""
     gem_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not gem_key:
-        raise RuntimeError("GEMINI_API_KEY is required for gameplay-aware scripts; refusing filename-only narration.")
+    if not gem_key and not (os.environ.get("GROQ_API_KEY") or os.environ.get("OPENROUTER_API_KEY")):
+        raise RuntimeError("No configured AI provider is available for gameplay-aware scripts.")
 
     duration_text = subprocess.check_output(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -532,6 +564,8 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         for x in recent_creative
     ) or "(no previous title/hook records)"
     previous_angle = recent_creative[-1].get("angle", "") if recent_creative else ""
+    winning_examples = hist.get("winning_examples") or []
+    winning_examples_text = json.dumps(winning_examples[:3], ensure_ascii=False)
     hype_now = fetch_live_hype_context()
     prompt = (
         "Adaptive US gaming Shorts creator: inspect all four gameplay frames in timestamp order and filename context first. "
@@ -542,6 +576,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         "Never invent what the frames show or make unsupported insider claims. "
         "Write 55-68 spoken words, naturally paced for 22-27 seconds. The FIRST SIX WORDS must be a concrete, startling curiosity hook directly tied to the strongest visible action in the supplied frames (the same action that opens the Short). Start with the object/action/payoff itself. Never begin with filler such as In this video, Have you ever wondered, Today we, or Let me show you. Escalate quickly, deliver a clear payoff, and end on a seamless loop. "
         f"Filename: {clean_name}. Focus: {focus}. Current trend context: {hype_now}. Previous angle: {previous_angle}. "
+        f"Channel's measured winning examples (titles/hooks/angles; use as evidence, do not copy): {winning_examples_text}. "
         f"Recent scripts to avoid:\\n{recent_avoid}\\n"
         f"Last 10 titles and opening hooks (avoid topic, wording, sentence shape, and hook pattern):\\n{recent_title_hooks}\\n"
         "Never repeat the same topic angle or hook pattern twice in a row. Vary openings: mystery, challenge, "
@@ -557,30 +592,55 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         with open(path, "rb") as image_file:
             parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(image_file.read()).decode("ascii")}})
     errors, data = [], None
-    for model in ("gemini-3-flash-preview", "gemini-2.5-flash"):
-        try:
-            response = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gem_key}",
-                headers={"Content-Type": "application/json"},
-                json={"contents": [{"parts": parts}], "generationConfig": {"temperature": 0.8, "responseMimeType": "application/json"}},
-                timeout=60
-            )
-            if response.status_code != 200:
-                errors.append(f"{model}: HTTP {response.status_code} {response.text[:160]}")
-                continue
-            raw = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-            candidate = _parse_strict_ai_json(raw)
-            from difflib import SequenceMatcher
-            normalized = re.sub(r"[^a-z0-9 ]", "", candidate["script"].lower())
-            if any(SequenceMatcher(None, normalized, re.sub(r"[^a-z0-9 ]", "", old.lower())).ratio() >= 0.78 for old in recent_scripts if old):
-                errors.append(f"{model}: narration too similar to a recent script")
-                continue
-            data = candidate
-            print(f">> Adaptive narration generated by {model}; sampled 4 frames.")
-            print(f"[narration] {candidate['script']}")
-            break
-        except Exception as exc:
-            errors.append(f"{model}: {type(exc).__name__}: {exc}")
+    if gem_key:
+        for model in ("gemini-3-flash-preview", "gemini-2.5-flash"):
+            try:
+                response = requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gem_key}",
+                    headers={"Content-Type": "application/json"},
+                    json={"contents": [{"parts": parts}], "generationConfig": {"temperature": 0.8, "responseMimeType": "application/json"}},
+                    timeout=60
+                )
+                if response.status_code != 200:
+                    errors.append(f"{model}: HTTP {response.status_code} {response.text[:160]}")
+                    continue
+                raw = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+                candidate = _parse_strict_ai_json(raw)
+                from difflib import SequenceMatcher
+                normalized = re.sub(r"[^a-z0-9 ]", "", candidate["script"].lower())
+                if any(SequenceMatcher(None, normalized, re.sub(r"[^a-z0-9 ]", "", old.lower())).ratio() >= 0.78 for old in recent_scripts if old):
+                    errors.append(f"{model}: narration too similar to a recent script")
+                    continue
+                data = candidate
+                print(f">> Adaptive narration generated by {model}; sampled 4 frames.")
+                print(f"[narration] {candidate['script']}")
+                break
+            except Exception as exc:
+                errors.append(f"{model}: {type(exc).__name__}: {exc}")
+
+    if data is None:
+        fallback_prompt = (
+            prompt + "\\nGemini visual analysis was unavailable or rate-limited. "
+            "Text-only fallback: do not claim to see the frames; use only filename, focus, and reliable game facts. "
+            "Return the same strict JSON schema and 55-68 spoken words."
+        )
+        for provider in ("groq", "openrouter"):
+            try:
+                fallback_raw = _generate_text_fallback(fallback_prompt, provider)
+                if not fallback_raw:
+                    continue
+                candidate = _parse_strict_ai_json(fallback_raw)
+                from difflib import SequenceMatcher
+                normalized = re.sub(r"[^a-z0-9 ]", "", candidate["script"].lower())
+                if any(SequenceMatcher(None, normalized, re.sub(r"[^a-z0-9 ]", "", old.lower())).ratio() >= 0.78 for old in recent_scripts if old):
+                    errors.append(f"{provider}: fallback narration too similar to a recent script")
+                    continue
+                data = candidate
+                print(f">> Adaptive narration generated by {provider} text-only fallback.")
+                break
+            except Exception as exc:
+                errors.append(f"{provider}: {type(exc).__name__}: {exc}")
+
     if data is None:
         raise RuntimeError("Gameplay-aware script generation failed; refusing to publish. " + " | ".join(errors[-4:]))
 
@@ -810,13 +870,19 @@ def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist
         f"Instagram Reels: {ig_status}"
     )
     deliver_to_telegram(summary, "final.mp4", ig_caption)
+    return vid_id
 
 if __name__ == "__main__":
     try:
         hist = json.load(open("history.json")) if os.path.exists("history.json") else {"used_windows": [], "used_topics": []}
         cfg = json.load(open("config.json")) if os.path.exists("config.json") else {"focus": "auto", "last_video_id": "", "pending_url": ""}
         focus = cfg.get("focus", "auto")
-        fname, local_clip, source_hash, start_second, source_duration = stream_unique_action_clips(hist, focus)
+        try:
+            from analytics_tuner import tune_daily_analytics
+            tune_daily_analytics(cfg, hist)
+        except Exception as analytics_error:
+            print(f"[analytics] Non-fatal tuner error: {type(analytics_error).__name__}: {analytics_error}")
+        fname, local_clip, source_hash, start_second, source_duration, source_key = stream_unique_action_clips(hist, focus)
         title, top_hook, script, first_comment, ig_caption, tags, creative_angle = generate_viral_package(fname, hist, focus, local_clip)
         rendered_path = render_full_bleed_short(local_clip, script, "final.mp4", top_hook=top_hook, creative_angle=creative_angle)
         if not os.path.isfile(rendered_path) or os.path.getsize(rendered_path) < 100_000:
@@ -830,7 +896,10 @@ if __name__ == "__main__":
             raise RuntimeError(
                 f"Rendered Short must be 22–28 seconds; got {final_duration:.2f}s. Refusing to publish."
             )
-        publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist, source_hash, fname, start_second, source_duration)
+        uploaded_video_id = publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist, source_hash, source_key, start_second, source_duration)
+        if hist.get("recent_creative_entries"):
+            hist["recent_creative_entries"][-1]["video_id"] = uploaded_video_id
+            hist["recent_creative_entries"][-1]["source_key"] = source_key
         with open("history.json", "w", encoding="utf-8") as history_file:
             json.dump({"used_windows": hist.get("used_windows", [])[-400:],
                        "used_topics": hist.get("used_topics", [])[-100:],
