@@ -150,7 +150,8 @@ def _gemini_generate(api_key, parts, generation_config=None):
     """Try discovered Gemini models with short exponential backoff on overload."""
     models = _discover_gemini_models(api_key)
     if not models:
-        models = ["gemini-2.0-flash"]
+        print("[AI] No Gemini Flash/Pro generateContent models are available for this API key.")
+        return None, None
     for model in models:
         for attempt in range(3):
             try:
@@ -326,40 +327,8 @@ def fetch_live_hype_context():
     return "; ".join(topics[:6]) if topics else "GTA 6 realistic open world details and viral gaming physics"
 
 def ask_ai_brain(prompt):
-    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
-    if groq_key:
-        try:
-            r = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
-                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.9},
-                timeout=20
-            )
-            if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"]
-        except Exception as e:
-            print("Groq fallback:", e)
-
-    or_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if or_key:
-        for mid in ["qwen/qwen-2.5-72b-instruct:free", "deepseek/deepseek-chat-v3-0324:free"]:
-            try:
-                r = requests.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {or_key}", "Content-Type": "application/json"},
-                    json={"model": mid, "messages": [{"role": "user", "content": prompt}]},
-                    timeout=25
-                )
-                if r.status_code == 200:
-                    return r.json()["choices"][0]["message"]["content"]
-            except Exception as e:
-                print("OpenRouter fallback:", mid, e)
-
-    gem_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if gem_key:
-        client = _SafeClientProxy(genai.Client(api_key=gem_key))
-        return client.models.generate_content(model="gemini-3.8-flash", contents=prompt).text
-    raise RuntimeError("No AI API key succeeded.")
+    """Use dynamically discovered free providers; return None if all are unavailable."""
+    return generate_viral_script_waterfall(prompt)
 
 def stream_unique_action_clips(hist, focus):
     """Download a cloud source and extract a fresh, non-overlapping 45-second window."""
@@ -536,6 +505,7 @@ def _parse_strict_ai_json(raw):
     if angle not in ("story_fact", "clip_focused"):
         raise ValueError("creative_angle must be story_fact or clip_focused")
     data["title"] = _repair_title(data["title"], "Gaming")
+    title = data["title"].strip()
     generic_title = re.compile(
         r"\b(?:tracking leads through the city|from the beach|pushing physics|"
         r"gaming moments|epic gameplay|crazy gameplay|a day in|exploring the city)\b",
@@ -605,9 +575,6 @@ def _generate_text_fallback(prompt, provider):
 def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     """Use sampled frames from the actual source clip; fail closed if visual analysis is unavailable."""
     gem_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not gem_key and not (os.environ.get("GROQ_API_KEY") or os.environ.get("OPENROUTER_API_KEY")):
-        raise RuntimeError("No configured AI provider is available for gameplay-aware scripts.")
-
     duration_text = subprocess.check_output(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
          "-of", "default=noprint_wrappers=1:nokey=1", local_clip],
