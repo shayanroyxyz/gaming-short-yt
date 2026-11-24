@@ -527,28 +527,22 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     recent_avoid = "\n".join(f"- {x}" for x in recent_scripts if x)
     hype_now = fetch_live_hype_context()
     prompt = (
-        "Write a high-retention US gaming YouTube Short based ONLY on the attached sampled gameplay frames. "
-        "Infer only visible events; never invent actions, outcomes, characters, or mechanics. "
-        "If ambiguous, describe only what is certain. "
-        "The script MUST contain 75-95 spoken words and narrate naturally in 30-42 seconds. "
-        "Structure it as: a strong first-second hook, then three fast story/fact beats with concrete "
-        "gameplay detail, then a cliffhanger or loop ending that connects back to the hook. "
-        "Do not pad the script or invent events not supported by the frames. "
-        f"Filename (weak hint only): {clean_name}. Focus: {focus}. Optional trend context: {hype_now}. "
-        f"Do not reuse or closely paraphrase these recent scripts:\n{recent_avoid}\n"
-        "Return ONLY valid JSON with keys hook, script, title, comment, ig_caption, tags. "
-        "hook: 4-6 uppercase words. script: 75-95 spoken words, natural US English, "
-        "include three distinct fast-paced fact/story beats, build to a visible payoff, and finish "
-        "with a cliffhanger/loop line. The opening hook must land immediately. "
-        "Avoid generic filler. TITLE RULES: under 70 characters; write a punchy US Shorts title " +
-        "built around a specific visible detail, surprising outcome, rarity, number, or direct game comparison. " +
-        "Never use generic templates such as " +
-        "'Tracking Leads Through the City', 'From the Beach', or 'Pushing Physics'. " +
-        "Write a specific, truthful US Shorts curiosity title grounded in visible gameplay; " +
-        "include a concrete number, secret/hidden detail, rare discovery, or clear comparison " +
-        "(examples of style only: 'Rockstar Hid This GTA 6 Secret in Plain Sight', " +
-        "'Why GTA 4 Physics Still Beat GTA 5'). Never invent a secret or claim not supported by frames. " +
-        "comment one short question; "
+        "Adaptive US gaming Shorts creator: inspect all four gameplay frames in timestamp order and filename context first. "
+        "Choose creative_angle exactly story_fact or clip_focused. For energetic free-roam, chases, stunts, and crashes, "
+        "choose story_fact: let the action hold attention while narration tells an accurate gaming story, developer detail, "
+        "or surprising fact; narration need not describe driving. For a specific experiment, object, NPC behavior, glitch, "
+        "physics test, secret, or Easter egg, choose clip_focused and narrate the visible setup through its exact payoff. "
+        "Never invent what the frames show or make unsupported insider claims. "
+        "Write 75-95 spoken words, naturally paced for 30-42 seconds: immediate hook, three quick beats, cliffhanger/loop. "
+        f"Filename: {clean_name}. Focus: {focus}. Current trend context: {hype_now}. Previous angle: {previous_angle}. "
+        f"Recent scripts to avoid:\\n{recent_avoid}\\n"
+        f"Last 10 titles and opening hooks (avoid topic, wording, sentence shape, and hook pattern):\\n{recent_title_hooks}\\n"
+        "Never repeat the same topic angle or hook pattern twice in a row. Vary openings: mystery, challenge, "
+        "counterintuitive fact, surprising claim, or a specific visual question. "
+        "Return ONLY JSON keys creative_angle, hook, script, title, comment, ig_caption, tags. "
+        "hook: 3-5 punchy words for the first-frame badge. title: under 70 characters, truthful, high-curiosity, "
+        "grounded in the game/frames; avoid generic titles and unsupported secrets. "
+        "comment: one short natural debate/curiosity question tied to this video. No spam. "
         "ig_caption short; tags array. No markdown fences."
     )
     parts = [{"text": prompt}]
