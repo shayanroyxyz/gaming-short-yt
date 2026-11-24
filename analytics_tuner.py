@@ -1,14 +1,7 @@
-"""Daily, best-effort YouTube upload analytics tuner.
-
-Uses the repository's existing OAuth refresh-token secrets and the free YouTube
-Data API. If the refresh token lacks read scope, the failure is recorded and
-normal upload generation continues unchanged.
-"""
+"""Daily, best-effort public YouTube analytics tuner using an API key."""
 import datetime
 import os
 
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
 
@@ -84,7 +77,7 @@ def tune_daily_analytics(config, history):
         config["analytics_last_error"] = f"{type(exc).__name__}: {exc}"
         print(
             "[analytics] Read failed; preserving previous winning_examples. "
-            f"Check whether the existing refresh token includes youtube.readonly: "
+            f"Check that YOUTUBE_API_KEY has YouTube Data API v3 enabled: "
             f"{config['analytics_last_error']}"
         )
         return False
