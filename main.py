@@ -168,9 +168,9 @@ def _center_upper_safe_zone_captions(*args, **kwargs):
     ass_path = _ORIGINAL_BUILD_CAPTIONS(*args, **kwargs)
     with open(ass_path, "r", encoding="utf-8") as caption_file:
         ass_text = caption_file.read()
-    # ASS Alignment=8 anchors captions at the top; MarginV=410 places them
-    # around y=410 on the 1080x1920 canvas, below the top hook banner.
-    ass_text = ass_text.replace(",8,70,70,230,1", ",8,70,70,410,1")
+    # ASS Alignment=8 anchors captions at the top; MarginV=400 places them
+    # in the upper-center safe zone on the 1080x1920 canvas.
+    ass_text = ass_text.replace(",8,70,70,230,1", ",8,70,70,400,1")
     with open(ass_path, "w", encoding="utf-8") as caption_file:
         caption_file.write(ass_text)
     return ass_path
