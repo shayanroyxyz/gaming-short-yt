@@ -191,6 +191,54 @@ def _frame_quality_metrics(src_video, timestamp):
     }
 
 
+
+def _opening_window_metrics(src_video, start, duration=3.5, fps=2):
+    """Measure brightness, color saturation, contrast and frame-to-frame action."""
+    width, height = 160, 90
+    frame_size = width * height * 3
+    decoded = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", f"{start:.3f}",
+         "-i", src_video, "-t", f"{duration:.3f}", "-vf",
+         f"fps={fps},scale={width}:{height}:flags=area,format=rgb24",
+         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90
+    ).stdout
+    count = len(decoded) // frame_size
+    if count < 4:
+        raise RuntimeError("Not enough frames to validate opening action.")
+    lumas, saturations, contrasts, frames = [], [], [], []
+    for idx in range(count):
+        raw = decoded[idx * frame_size:(idx + 1) * frame_size]
+        lum, sat = [], []
+        for p in range(0, frame_size, 3):
+            red, green, blue = raw[p], raw[p + 1], raw[p + 2]
+            lum.append(0.2126 * red + 0.7152 * green + 0.0722 * blue)
+            sat.append(max(red, green, blue) - min(red, green, blue))
+        mean = sum(lum) / len(lum)
+        variance = sum((v - mean) ** 2 for v in lum) / len(lum)
+        lumas.append(mean)
+        saturations.append(sum(sat) / len(sat))
+        contrasts.append(variance ** 0.5)
+        frames.append(lum)
+    motion = [
+        sum(abs(a - b) for a, b in zip(previous, current)) / len(current)
+        for previous, current in zip(frames, frames[1:])
+    ]
+    result = {
+        "mean_luma": round(sum(lumas) / len(lumas), 2),
+        "min_frame_luma": round(min(lumas), 2),
+        "saturation": round(sum(saturations) / len(saturations), 2),
+        "contrast": round(sum(contrasts) / len(contrasts), 2),
+        "motion": round(sum(motion) / max(1, len(motion)), 2),
+    }
+    result["accepted"] = (
+        result["mean_luma"] >= 85 and result["min_frame_luma"] >= 65
+        and result["saturation"] >= 35 and result["contrast"] >= 38
+        and result["motion"] >= 10
+    )
+    return result
+
+
 def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.mp4", top_hook="", creative_angle="clip_focused", voice_audio_override=None):
     """Render a 22–28 second vertical Short with motion-ranked action-first cuts."""
     if not os.path.isfile(src_video) or os.path.getsize(src_video) < 100_000:
@@ -246,19 +294,17 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     opening_start = None
     for candidate in ranked_starts:
         try:
-            metrics = _frame_quality_metrics(src_video, candidate + 0.12)
+            metrics = _opening_window_metrics(src_video, candidate, segment_dur)
         except Exception as exc:
-            print(f"[visual-gate] Could not inspect frame at {candidate:.2f}s: {exc}")
+            print(f"[visual-gate] Could not inspect 3.5s opening at {candidate:.2f}s: {exc}", flush=True)
             continue
-        if (18 <= metrics["brightness"] <= 238
-                and metrics["contrast"] >= 17
-                and metrics["sharpness"] >= 2.2):
+        if metrics["accepted"]:
             opening_start = candidate
-            print(f"[visual-gate] Accepted Cut #1 at {candidate:.2f}s: {metrics}")
+            print(f"[visual-gate] ACCEPTED bright, saturated, high-motion Cut #1 at {candidate:.2f}s: {metrics}", flush=True)
             break
-        print(f"[visual-gate] Rejected opening at {candidate:.2f}s: {metrics}")
+        print(f"[visual-gate] REJECTED Cut #1 at {candidate:.2f}s: {metrics}", flush=True)
     if opening_start is None:
-        raise RuntimeError("No motion-ranked opening frame passed brightness/contrast/sharpness quality gates.")
+        raise RuntimeError("No opening cut passed strict luma>=85, saturation>=35, contrast>=38 and motion>=10 gates.")
     cut_starts = [opening_start] + [x for x in ranked_starts if abs(x - opening_start) > 0.01]
     if len(cut_starts) < cut_count:
         for candidate in [i * segment_dur for i in range(int(source_dur // segment_dur) + 1)]:
@@ -295,8 +341,8 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         f"{concat_inputs}concat=n={cut_count}:v=1:a=0[game];"
         "[game]unsharp=5:5:0.8:5:5:0.0,"
         f"drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
-        f"textfile={hook_path}:fontcolor=white:fontsize=46:box=1:"
-        f"boxcolor=black@0.82:boxborderw=18:x=(w-text_w)/2:y=250:"
+        f"textfile={hook_path}:fontcolor=yellow:fontsize=64:box=1:"
+        f"boxcolor=black@0.78:boxborderw=26:x=(w-text_w)/2:y=235:"
         f"enable='between(t,0,2.5)':alpha='if(lt(t,2.1),1,max(0,(2.5-t)/0.4))',"
         f"ass={ass_path}[decorated];"
         "[decorated]split=2[basevsrc][headvsrc];"
@@ -345,7 +391,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     print(
         f"Rendered {output_duration:.2f}s Short; {cut_count} motion-ranked "
         f"{segment_dur:.2f}s cuts, highest-motion first, 1.00–1.05 zoom, "
-        "full-bleed 9:16 and 72px centered captions."
+        "full-bleed 9:16, 64px yellow hook badge and 72px centered captions."
     )
     return out_video
 
