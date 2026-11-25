@@ -200,8 +200,8 @@ while time.time() < deadline:
             if command == "/cancel" or text == "❌ Cancel":
                 cfg["pending_url"] = ""
                 send_msg(chat_id, "❌ Cancelled. Ready for your next command!", MAIN_KEYBOARD)
-            elif re.search(r"https?://(?:www\\.)?(?:youtube\\.com|youtu\\.be)/[^\\s<>]+", text, re.I):
-                match = re.search(r"https?://(?:www\\.)?(?:youtube\\.com|youtu\\.be)/[^\\s<>]+", text, re.I)
+            elif re.search(r"https?://(?:www\.)?(?:youtube\.com|youtu\.be)/[^\s<>]+", text, re.I):
+                match = re.search(r"https?://(?:www\.)?(?:youtube\.com|youtu\.be)/[^\s<>]+", text, re.I)
                 url = match.group(0).rstrip(".,;!?)")
                 label = (text[:match.start()] + " " + text[match.end():]).strip()
                 if len(label) > 2:
