@@ -528,19 +528,26 @@ def _generate_text_fallback(prompt, provider):
             return None
         response = None
         for model in _discover_groq_models(key):
-            try:
-                candidate = requests.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                    json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.8},
-                    timeout=35
-                )
-                if candidate.status_code == 200:
-                    response = candidate
-                    break
-                print(f"Groq {model} HTTP {candidate.status_code}: {candidate.text[:120]}")
-            except requests.RequestException:
-                continue
+            for attempt in range(3):
+                try:
+                    candidate = requests.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                        json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.8},
+                        timeout=35
+                    )
+                    if candidate.status_code == 200:
+                        response = candidate
+                        break
+                    print(f"Groq {model} attempt {attempt + 1}/3 HTTP {candidate.status_code}: {candidate.text[:120]}", flush=True)
+                    if candidate.status_code not in (429, 500, 502, 503, 504):
+                        break
+                except requests.RequestException as exc:
+                    print(f"Groq {model} attempt {attempt + 1}/3 network error: {exc}", flush=True)
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+            if response is not None:
+                break
         if response is None:
             return None
     elif provider == "openrouter":
@@ -582,8 +589,20 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     ).strip()
     duration = max(1.0, float(duration_text))
     frame_paths = []
-    # Sample the highest-motion window that the renderer will use at 0:00.
-    first_action_start = _render_engine._score_motion_windows(local_clip, duration, 3.5)[0]
+    # Sample the first window that also passes the renderer's strict opening gate.
+    first_action_start = None
+    for candidate_start in _render_engine._score_motion_windows(local_clip, duration, 3.5):
+        try:
+            opening_metrics = _render_engine._opening_window_metrics(local_clip, candidate_start, 3.5)
+        except Exception as exc:
+            print(f"[visual-analysis] Opening candidate {candidate_start:.2f}s could not be measured: {exc}")
+            continue
+        if opening_metrics.get("accepted"):
+            first_action_start = candidate_start
+            print(f"[visual-analysis] Using bright action-first opening at {candidate_start:.2f}s: {opening_metrics}")
+            break
+    if first_action_start is None:
+        raise RuntimeError("No bright, high-contrast, saturated high-motion opening passed the strict visual gate; refusing a weak hook.")
     sample_times = [
         first_action_start + 0.35,
         first_action_start + 1.25,
@@ -660,9 +679,17 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
                 errors.append(f"{model}: {type(exc).__name__}: {exc}")
 
     if data is None:
+        # Gemini has exhausted every discovered Flash/Pro model and its retries.
+        # Now try every active Groq model with three attempts each, using measured
+        # action timestamps as evidence; never fabricate unseen events.
+        action_windows = _render_engine._score_motion_windows(local_clip, duration, 3.5)[:5]
+        action_evidence = ", ".join(f"{stamp:.1f}s" for stamp in action_windows)
         fallback_prompt = (
-            prompt + "\nGemini visual analysis was unavailable or rate-limited. "
-            "Text-only fallback: do not claim to see the frames; use only filename, focus, and reliable game facts. "
+            prompt + "\nGemini visual generation failed after model discovery and retries. "
+            f"Measured high-motion gameplay windows occur at source timestamps: {action_evidence}. "
+            "You are text-only: do not invent what happens in those windows or describe unseen objects, rooms, characters, or events. "
+            "Use only the supplied filename, focus, reliable game facts, and timestamp evidence. "
+            "If a specific truthful action beat cannot be stated, do not return generic filler. "
             "Return the same strict JSON schema and 55-68 spoken words."
         )
         for provider in ("groq", "openrouter"):
@@ -677,14 +704,13 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
                     errors.append(f"{provider}: fallback narration too similar to a recent script")
                     continue
                 data = candidate
-                print(f">> Adaptive narration generated by {provider} text-only fallback.")
+                print(f">> Adaptive narration generated by {provider} action-evidence text fallback.")
                 break
             except Exception as exc:
                 errors.append(f"{provider}: {type(exc).__name__}: {exc}")
 
     if data is None:
-        data = _offline_package(fname, focus)
-        print("[AI] All remote providers unavailable; using conservative offline narration template.")
+        raise RuntimeError("All Gemini and Groq/OpenRouter attempts failed; refusing to publish generic offline narration. " + "; ".join(errors[-8:]))
     data["title"] = _repair_title(data.get("title", ""), "Gaming")
     title = _repair_title(data["title"], "Gaming")
     hook = data["hook"].replace("'", "").replace('"', "").strip()
