@@ -12,7 +12,8 @@
     "TRUCK DRIVES ON OCEAN FLOOR",
     "FIRE CANNOT STOP THIS",
     "Dart hit leads to abduction",
-    "GTA5 Moment"
+    "GTA5 Moment",
+    "GTA 6 PC Delay"
   ],
   "recent_scripts": [
     {
@@ -64,6 +65,11 @@
       "source": "[GTA5]_Clip_6697.mp4",
       "script": "This moment shows why GTA5 keeps players coming back. The world gives every small decision room to become something unexpected. There is no need for a scripted cutscene when the game systems create their own stories. Watch the details, notice how the moment unfolds, and decide what stands out most. That unpredictability is the reason these games are still worth revisiting.",
       "created_at": "2026-11-25T00:59:19.139087+00:00"
+    },
+    {
+      "source": "[GTA6]_Clip_339.mp4",
+      "script": "GTA 6 PC release date remains a mystery. The hype is breaking the internet, with players debating if eighty dollars is worth the wait. Meanwhile, we are stuck grinding Los Santos one last time. Is the delay worth it for better graphics? Or are we already missing this classic world? Drop your theory below before the next update drops, because GTA 6 PC release date remains a mystery.",
+      "created_at": "2026-11-25T01:28:25.977596+00:00"
     }
   ],
   "recent_creative_entries": [
@@ -82,6 +88,14 @@
       "created_at": "2026-11-25T00:59:19.139068+00:00",
       "video_id": "bsDaC_eSgR8",
       "source_key": "mega:[GTA5]_Clip_6697.mp4"
+    },
+    {
+      "title": "GTA 6 PC Delay: Why We\u2019re Still Playing GTA 5?",
+      "hook": "GTA 6 PC Delay",
+      "angle": "story_fact",
+      "created_at": "2026-11-25T01:28:25.977576+00:00",
+      "video_id": "ELrvCfbbzd8",
+      "source_key": "pcloud:[GTA6]_Clip_339.mp4"
     }
   ],
   "used_sources": [
@@ -97,7 +111,8 @@
     "pcloud:[GTA5]_Clip_6723.mp4@135s",
     "pcloud:[GTA5]_Clip_6734.mp4@90s",
     "pcloud:[GTA6]_Clip_316.mp4@1485s",
-    "mega:[GTA5]_Clip_6697.mp4@45s"
+    "mega:[GTA5]_Clip_6697.mp4@45s",
+    "pcloud:[GTA6]_Clip_339.mp4@675s"
   ],
   "uploaded_source_windows": [
     {
@@ -215,6 +230,15 @@
       "video_id": "bsDaC_eSgR8",
       "privacy_status": "public",
       "uploaded_at": "2026-11-25T01:00:16.158445+00:00"
+    },
+    {
+      "hash": "e3e9959399516f4b15be1a9612afa5fd2d2ee674b03c8d0514358f612d86f477",
+      "source": "pcloud:[GTA6]_Clip_339.mp4",
+      "start_second": 675.0,
+      "duration": 45.0,
+      "video_id": "ELrvCfbbzd8",
+      "privacy_status": "public",
+      "uploaded_at": "2026-11-25T01:29:08.986597+00:00"
     }
   ],
   "used_source_windows": [
@@ -259,6 +283,13 @@
       "duration": 45.0,
       "hash": "388913cfa095a28cb9dff90c265991f51ac88ac33ec1a9a17ca1573e4d2c5a64",
       "video_id": "bsDaC_eSgR8"
+    },
+    {
+      "source": "pcloud:[GTA6]_Clip_339.mp4",
+      "start_second": 675.0,
+      "duration": 45.0,
+      "hash": "e3e9959399516f4b15be1a9612afa5fd2d2ee674b03c8d0514358f612d86f477",
+      "video_id": "ELrvCfbbzd8"
     }
   ],
   "published_source_files": [
@@ -270,6 +301,7 @@
     "[GTA5]_Clip_6723.mp4",
     "[GTA6]_Clip_316.mp4",
     "pcloud:[GTA6]_Clip_316.mp4",
-    "mega:[GTA5]_Clip_6697.mp4"
+    "mega:[GTA5]_Clip_6697.mp4",
+    "pcloud:[GTA6]_Clip_339.mp4"
   ]
 }
