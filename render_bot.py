@@ -133,6 +133,16 @@ requests.post(f"https://api.telegram.org/bot{TOKEN}/setMyCommands", json={"comma
 
 requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", params={"drop_pending_updates": False}, timeout=10)
 offset, pending = load_bot_state()
+
+# This legacy Render service keeps its HTTP health endpoint alive, but the
+# GitHub Actions telegram_listener workflow is the sole getUpdates poller.
+# Set RENDER_BOT_POLLING_ENABLED=true only if intentionally migrating polling
+# back to this service and disabling the Actions poller.
+if os.environ.get("RENDER_BOT_POLLING_ENABLED", "").strip().lower() not in ("1", "true", "yes"):
+    print("Legacy Render Telegram polling disabled; GitHub Actions is the sole poller.", flush=True)
+    while True:
+        time.sleep(60)
+
 seen = set()
 
 while True:

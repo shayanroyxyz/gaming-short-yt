@@ -149,7 +149,7 @@ class PipelineRegressionTests(unittest.TestCase):
         short_graph = self._run_renderer_fixture({
             0.0: self._metrics(18.0, True),
             4.0: self._metrics(16.0, True),
-        }, audio_duration=14.01)
+        }, audio_duration=14.0)
         self.assertIn("concat=n=4:v=1:a=0", short_graph)
 
         long_graph = self._run_renderer_fixture({
@@ -160,6 +160,14 @@ class PipelineRegressionTests(unittest.TestCase):
         self.assertIn("duration=0.35", long_graph)
         self.assertIn("sidechaincompress=", long_graph)
         self.assertIn("acrossfade=d=0.35", long_graph)
+
+    def test_main_publish_gate_uses_only_the_14_to_58_5_second_range(self):
+        main_path = os.path.join(os.path.dirname(__file__), "..", "main.py")
+        with open(main_path, encoding="utf-8") as source_file:
+            source = source_file.read()
+        self.assertIn("if not (14.0 <= final_duration <= 58.5):", source)
+        self.assertNotIn("22–28 seconds", source)
+        self.assertNotIn("22-28 seconds", source)
 
     def test_ai_parser_accepts_natural_96_word_narration(self):
         script = " ".join(
