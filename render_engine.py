@@ -231,11 +231,14 @@ def _opening_window_metrics(src_video, start, duration=3.5, fps=2):
         "contrast": round(sum(contrasts) / len(contrasts), 2),
         "motion": round(sum(motion) / max(1, len(motion)), 2),
     }
-    result["accepted"] = (
+    # Keep the non-motion quality floor identical for strict and fallback
+    # selection. Motion is evaluated separately so fallback cannot admit dark,
+    # low-contrast, or desaturated footage.
+    result["quality_ok"] = (
         result["mean_luma"] >= 85 and result["min_frame_luma"] >= 65
         and result["saturation"] >= 35 and result["contrast"] >= 38
-        and result["motion"] >= 10
     )
+    result["accepted"] = result["quality_ok"] and result["motion"] >= 10
     return result
 
 
@@ -292,19 +295,33 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         raise RuntimeError("Gameplay source is shorter than one required cut.")
     ranked_starts = _score_motion_windows(src_video, source_dur, segment_dur)
     opening_start = None
+    best_safe_fallback = None
     for candidate in ranked_starts:
         try:
             metrics = _opening_window_metrics(src_video, candidate, segment_dur)
         except Exception as exc:
-            print(f"[visual-gate] Could not inspect 3.5s opening at {candidate:.2f}s: {exc}", flush=True)
+            print(f"[visual-gate] Could not inspect opening at {candidate:.2f}s: {exc}", flush=True)
             continue
         if metrics["accepted"]:
             opening_start = candidate
-            print(f"[visual-gate] ACCEPTED bright, saturated, high-motion Cut #1 at {candidate:.2f}s: {metrics}", flush=True)
+            print(f"[visual-gate] ACCEPTED strict bright, saturated, high-motion Cut #1 at {candidate:.2f}s: {metrics}", flush=True)
             break
-        print(f"[visual-gate] REJECTED Cut #1 at {candidate:.2f}s: {metrics}", flush=True)
+        if metrics.get("quality_ok") and metrics["motion"] >= 5.0:
+            if best_safe_fallback is None or metrics["motion"] > best_safe_fallback[1]["motion"]:
+                best_safe_fallback = (candidate, metrics)
+        print(f"[visual-gate] REJECTED strict Cut #1 at {candidate:.2f}s: {metrics}", flush=True)
+    if opening_start is None and best_safe_fallback is not None:
+        opening_start, fallback_metrics = best_safe_fallback
+        print(
+            f"[visual-gate] SAFE FALLBACK: using highest-motion bright/high-contrast "
+            f"window (motion>=5.0, strict target>=10) at {opening_start:.2f}s: {fallback_metrics}",
+            flush=True
+        )
     if opening_start is None:
-        raise RuntimeError("No opening cut passed strict luma>=85, saturation>=35, contrast>=38 and motion>=10 gates.")
+        raise RuntimeError(
+            "No opening cut passed quality floors (luma>=85, min-frame luma>=65, "
+            "saturation>=35, contrast>=38) with motion>=5."
+        )
     cut_starts = [opening_start] + [x for x in ranked_starts if abs(x - opening_start) > 0.01]
     if len(cut_starts) < cut_count:
         for candidate in [i * segment_dur for i in range(int(source_dur // segment_dur) + 1)]:
@@ -403,7 +420,9 @@ def run_ffmpeg_self_test():
     subprocess.run([
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-f", "lavfi", "-i", "testsrc2=size=720x1280:rate=30",
-        "-t", "45", "-an", "-c:v", "libx264", "-preset", "ultrafast",
+        "-t", "45", "-vf",
+        "drawbox=x='mod(t*420,iw/2)':y=0:w=iw/2:h=ih:color=yellow:t=fill",
+        "-an", "-c:v", "libx264", "-preset", "ultrafast",
         "-crf", "30", "-pix_fmt", "yuv420p", source
     ], check=True, timeout=240)
     script = (
