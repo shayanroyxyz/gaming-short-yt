@@ -474,7 +474,7 @@ def stream_unique_action_clips(hist, focus):
         entry.get("hash") for entry in uploaded_entries if entry.get("hash")
     }
     if source_hash in uploaded_hashes:
-        raise RuntimeError(f"Duplicate 45-second source window detected: {source_key} at {start_second:.0f}s")
+        raise RuntimeError(f"Duplicate {window_seconds:.0f}-second source window detected: {source_key} at {start_second:.0f}s")
 
     used_sources.append(f"{source_key}@{start_second:.0f}s")
     hist["used_sources"] = used_sources[-500:]
