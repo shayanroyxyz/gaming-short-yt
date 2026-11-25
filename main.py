@@ -134,6 +134,11 @@ def _discover_groq_models(api_key):
             if item.get("active") is False:
                 continue
             low = model_id.lower()
+            # Groq's model catalog also contains Llama Prompt Guard models.
+            # They are classifiers, not chat-generation models, and return
+            # HTTP 400 when used with chat/completions.
+            if any(term in low for term in ("prompt-guard", "llama-guard", "safeguard", "guardrail", "moderation")):
+                continue
             if any(term in low for term in ("llama", "qwen", "mixtral", "gemma")):
                 preferred.append(model_id)
         preferred.sort(key=lambda n: (
