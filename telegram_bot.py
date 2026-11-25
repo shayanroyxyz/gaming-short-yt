@@ -139,8 +139,9 @@ while time.time() < deadline:
             time.sleep(3)
             continue
         if response.status_code == 409 or resp.get("error_code") == 409:
-            print(f"Telegram getUpdates 409 Conflict (another poller or webhook is active): {resp}", flush=True)
-            raise SystemExit("Telegram polling conflict: ensure only one poller is running")
+            print(f"Telegram getUpdates 409 Conflict (another poller or webhook is active); retrying in 3s: {resp}", flush=True)
+            time.sleep(3)
+            continue
         if not response.ok or not resp.get("ok"):
             description = str(resp.get("description", response.text))
             print(f"Telegram getUpdates API error HTTP {response.status_code}: {description}", flush=True)

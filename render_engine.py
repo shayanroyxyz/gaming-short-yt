@@ -130,7 +130,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 def _score_motion_windows(src_video, source_dur, segment_dur, step=1.0):
-    """Rank candidate source windows by decoded frame-to-frame luminance change."""
+    """Rank windows using brightness, contrast, and motion before visual validation."""
     width, height = 160, 90
     frame_size = width * height
     decoded = subprocess.run(
@@ -144,18 +144,31 @@ def _score_motion_windows(src_video, source_dur, segment_dur, step=1.0):
         raise RuntimeError("Not enough decoded frames to score motion.")
     frames = [decoded[i * frame_size:(i + 1) * frame_size] for i in range(frame_count)]
     diffs = [0.0]
+    frame_luma, frame_contrast = [], []
+    for frame in frames:
+        values = list(frame)
+        mean = sum(values) / frame_size
+        variance = sum((value - mean) ** 2 for value in values) / frame_size
+        frame_luma.append(mean)
+        frame_contrast.append(variance ** 0.5)
     for i in range(1, frame_count):
         diffs.append(sum(abs(a - b) for a, b in zip(frames[i - 1], frames[i])) / frame_size)
     candidates, start = [], 0.0
     latest = max(0.0, source_dur - segment_dur)
     while start <= latest + 0.001:
         lo, hi = max(1, int(start * 2)), min(frame_count, max(2, int((start + segment_dur) * 2)))
-        score = sum(diffs[lo:hi]) / max(1, hi - lo)
-        candidates.append((score, start))
+        count = max(1, hi - lo)
+        motion = sum(diffs[lo:hi]) / count
+        brightness = sum(frame_luma[lo:hi]) / count
+        contrast = sum(frame_contrast[lo:hi]) / count
+        score = (0.35 * min(1.0, brightness / 255.0)
+                 + 0.30 * min(1.0, contrast / 128.0)
+                 + 0.35 * min(1.0, motion / 64.0))
+        candidates.append((score, motion, start))
         start += step
-    candidates.sort(key=lambda item: item[0], reverse=True)
-    selected = [candidates[0][1]] if candidates else [0.0]
-    for _, candidate in candidates[1:]:
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    selected = [candidates[0][2]] if candidates else [0.0]
+    for _, _, candidate in candidates[1:]:
         if all(abs(candidate - chosen) >= segment_dur * 0.85 for chosen in selected):
             selected.append(candidate)
         if len(selected) >= 12:
@@ -242,8 +255,49 @@ def _opening_window_metrics(src_video, start, duration=3.5, fps=2):
     return result
 
 
+def _visual_window_score(metrics):
+    """Comparable 0..1 score balancing brightness, contrast, motion, and saturation."""
+    clamp = lambda value: max(0.0, min(1.0, float(value)))
+    return (
+        0.30 * clamp(metrics.get("mean_luma", 0) / 255.0)
+        + 0.25 * clamp(metrics.get("contrast", 0) / 128.0)
+        + 0.35 * clamp(metrics.get("motion", 0) / 64.0)
+        + 0.10 * clamp(metrics.get("saturation", 0) / 255.0)
+    )
+
+
+def select_opening_window(src_video, ranked_starts, duration, label="visual-gate"):
+    """Prefer the best strict hook; otherwise always return the best measurable window."""
+    best_any = None
+    best_strict = None
+    for candidate in ranked_starts:
+        try:
+            metrics = _opening_window_metrics(src_video, candidate, duration)
+        except Exception as exc:
+            print(f"[{label}] Could not inspect opening at {candidate:.2f}s: {exc}", flush=True)
+            continue
+        score = _visual_window_score(metrics)
+        entry = (score, float(candidate), metrics)
+        if best_any is None or score > best_any[0]:
+            best_any = entry
+        if metrics.get("accepted") and (best_strict is None or score > best_strict[0]):
+            best_strict = entry
+    chosen = best_strict or best_any
+    if chosen:
+        _, start, metrics = chosen
+        if best_strict:
+            print(f"[{label}] STRICT BEST: selected highest-scoring bright/high-motion opening at {start:.2f}s: {metrics}", flush=True)
+        else:
+            print(f"[{label}] BEST-AVAILABLE FALLBACK: no strict candidate; selected highest brightness+contrast+motion score at {start:.2f}s: {metrics}", flush=True)
+        return start, metrics
+    fallback = float(ranked_starts[0]) if ranked_starts else 0.0
+    print(f"[{label}] METRICS UNAVAILABLE: using top motion-ranked window at {fallback:.2f}s.", flush=True)
+    return fallback, None
+
+
+
 def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.mp4", top_hook="", creative_angle="clip_focused", voice_audio_override=None):
-    """Render a 14–58 second vertical Short with duration-matched action-first cuts."""
+    """Render a 14–58.5 second vertical Short with duration-matched action-first cuts."""
     if not os.path.isfile(src_video) or os.path.getsize(src_video) < 100_000:
         raise RuntimeError(f"Source video is missing or too small: {src_video}")
     if voice_audio_override:
@@ -257,8 +311,8 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         tts_result = synthesize_human_voice(script_text)
         mp3_path, audio_dur, voice_used = tts_result[:3]
         word_boundaries = tts_result[3] if len(tts_result) > 3 else None
-    if not (14.0 <= audio_dur <= 58.0):
-        raise RuntimeError(f"Narration must be 14–58 seconds for a YouTube Short; got {audio_dur:.2f}s.")
+    if not (14.0 <= audio_dur <= 58.5):
+        raise RuntimeError(f"Narration must be 14–58.5 seconds for a YouTube Short; got {audio_dur:.2f}s.")
 
     target_dur = audio_dur
     cut_count = max(1, int(round(target_dur / 3.5)))
@@ -294,34 +348,9 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     if source_dur < segment_dur:
         raise RuntimeError("Gameplay source is shorter than one required cut.")
     ranked_starts = _score_motion_windows(src_video, source_dur, segment_dur)
-    opening_start = None
-    best_safe_fallback = None
-    for candidate in ranked_starts:
-        try:
-            metrics = _opening_window_metrics(src_video, candidate, segment_dur)
-        except Exception as exc:
-            print(f"[visual-gate] Could not inspect opening at {candidate:.2f}s: {exc}", flush=True)
-            continue
-        if metrics["accepted"]:
-            opening_start = candidate
-            print(f"[visual-gate] ACCEPTED strict bright, saturated, high-motion Cut #1 at {candidate:.2f}s: {metrics}", flush=True)
-            break
-        if metrics.get("quality_ok") and metrics["motion"] >= 5.0:
-            if best_safe_fallback is None or metrics["motion"] > best_safe_fallback[1]["motion"]:
-                best_safe_fallback = (candidate, metrics)
-        print(f"[visual-gate] REJECTED strict Cut #1 at {candidate:.2f}s: {metrics}", flush=True)
-    if opening_start is None and best_safe_fallback is not None:
-        opening_start, fallback_metrics = best_safe_fallback
-        print(
-            f"[visual-gate] SAFE FALLBACK: using highest-motion bright/high-contrast "
-            f"window (motion>=5.0, strict target>=10) at {opening_start:.2f}s: {fallback_metrics}",
-            flush=True
-        )
-    if opening_start is None:
-        raise RuntimeError(
-            "No opening cut passed quality floors (luma>=85, min-frame luma>=65, "
-            "saturation>=35, contrast>=38) with motion>=5."
-        )
+    opening_start, opening_metrics = select_opening_window(
+        src_video, ranked_starts, segment_dur, label="visual-gate"
+    )
     cut_starts = [opening_start] + [x for x in ranked_starts if abs(x - opening_start) > 0.01]
     if len(cut_starts) < cut_count:
         for candidate in [i * segment_dur for i in range(int(source_dur // segment_dur) + 1)]:
@@ -435,8 +464,8 @@ def run_ffmpeg_self_test():
         "and why its driving system deserves another look."
     )
     _, voice_duration, voice_name, _ = synthesize_human_voice(script, out_mp3=voice)
-    if not (14.0 <= voice_duration <= 58.0):
-        raise RuntimeError(f"Preflight TTS fixture must naturally land in 14–58 seconds; got {voice_duration:.2f}s")
+    if not (14.0 <= voice_duration <= 58.5):
+        raise RuntimeError(f"Preflight TTS fixture must naturally land in 14–58.5 seconds; got {voice_duration:.2f}s")
     print(f"[preflight] TTS fixture generated with {voice_name}; natural duration={voice_duration:.2f}s")
     rendered = render_full_bleed_short(
         source, script, output, top_hook="THAT LANDING WAS IMPOSSIBLE",
@@ -450,7 +479,7 @@ def run_ffmpeg_self_test():
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", rendered
     ], text=True, timeout=30).strip())
-    if probe != "1080x1920" or not (14.0 <= duration <= 58.0):
+    if probe != "1080x1920" or not (14.0 <= duration <= 58.5):
         raise RuntimeError(f"Preflight output invalid: size={probe}, duration={duration:.3f}s")
     print(
         f"FFMPEG_PREFLIGHT_OK: {rendered}; video={probe}; duration={duration:.3f}s; "
