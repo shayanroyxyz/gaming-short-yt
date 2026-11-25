@@ -151,10 +151,10 @@ class PipelineRegressionTests(unittest.TestCase):
 
             self.assertIn("Style: PopCap,DejaVu Sans,72,", content)
             self.assertIn(",70,70,0,1", content)
-            self.assertIn(r"\\an5\\pos(540,1050)", content)
-            self.assertIn(r"\\fscx100", content)
+            self.assertIn(r"\an5\pos(540,1050)", content)
+            self.assertIn(r"\fscx100", content)
             self.assertIn("Dialogue: 0,0:00:00.00,0:00:00.80", content)
-            self.assertNotIn(r"\\N", content)
+            self.assertNotIn(r"\N", content)
 
 
 if __name__ == "__main__":
