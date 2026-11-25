@@ -9,6 +9,29 @@ import render_engine
 
 
 class PipelineRegressionTests(unittest.TestCase):
+    def test_groq_model_discovery_excludes_prompt_guard_classifiers(self):
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"data": [
+                    {"id": "meta-llama/llama-prompt-guard-2-22m", "active": True},
+                    {"id": "meta-llama/llama-3.3-70b-versatile", "active": True},
+                    {"id": "qwen/qwen3-32b", "active": True},
+                    {"id": "meta-llama/llama-guard-4-12b", "active": True},
+                    {"id": "gemma2-9b-it", "active": False},
+                ]}
+
+        with patch.object(main.requests, "get", return_value=FakeResponse()):
+            models = main._discover_groq_models("test-key")
+
+        self.assertIn("meta-llama/llama-3.3-70b-versatile", models)
+        self.assertIn("qwen/qwen3-32b", models)
+        self.assertNotIn("meta-llama/llama-prompt-guard-2-22m", models)
+        self.assertNotIn("meta-llama/llama-guard-4-12b", models)
+        self.assertNotIn("gemma2-9b-it", models)
+
     def test_source_selection_downloads_and_validates_local_clip(self):
         local_clip = "/tmp/gta_source_window.mp4"
         if os.path.exists(local_clip):
