@@ -420,7 +420,7 @@ def run_ffmpeg_self_test():
     subprocess.run([
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-f", "lavfi", "-i",
-        "color=c=black:s=720x1280:r=30,geq="
+        "color=c=black:s=720x1280:r=10,geq="
         "r='if(lt(mod(X+T*420,160),80),255,0)':"
         "g='if(lt(mod(Y+T*300,160),80),255,0)':"
         "b='if(lt(mod(X+T*420,160),80)*lt(mod(Y+T*300,160),80),255,0)'",
