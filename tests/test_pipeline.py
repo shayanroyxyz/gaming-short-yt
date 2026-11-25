@@ -16,7 +16,7 @@ class PipelineRegressionTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as home:
             with patch.dict(os.environ, {"HOME": home, "RCLONE_CONF": "[test]\ntype = local\n"}):
-                ffprobe_results = iter(("90.0", "45.0"))
+                ffprobe_results = iter(("90.0", "65.0"))
 
                 def fake_check_output(cmd, **kwargs):
                     if cmd[:2] == ["rclone", "lsjson"]:
@@ -32,7 +32,7 @@ class PipelineRegressionTests(unittest.TestCase):
                         with open(cmd[3], "wb") as out:
                             out.write(b"x" * 200_000)
                     elif cmd[0] == "ffmpeg":
-                        self.assertIn("45", cmd)
+                        self.assertIn("65.0", cmd)
                         with open(cmd[-1], "wb") as out:
                             out.write(b"y" * 200_000)
                     else:
@@ -51,14 +51,14 @@ class PipelineRegressionTests(unittest.TestCase):
                 self.assertTrue(os.path.isfile(selected_path))
                 self.assertEqual(len(source_hash), 64)
                 self.assertEqual(start_second, 0.0)
-                self.assertEqual(source_duration, 45.0)
+                self.assertEqual(source_duration, 65.0)
                 self.assertEqual(source_key, "mega:[GTA6]_Clip_42.mp4")
                 self.assertIn("mega:[GTA6]_Clip_42.mp4@0s", history["used_sources"])
 
         if os.path.exists(local_clip):
             os.remove(local_clip)
 
-    def _run_renderer_fixture(self, metric_by_start):
+    def _run_renderer_fixture(self, metric_by_start, audio_duration=24.0):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         source = os.path.join(tmp.name, "source.mp4")
@@ -78,7 +78,7 @@ class PipelineRegressionTests(unittest.TestCase):
                 graph = cmd[cmd.index("-filter_complex") + 1]
                 captured["graph"] = graph
                 time_values = [cmd[i + 1] for i, value in enumerate(cmd[:-1]) if value == "-t"]
-                self.assertEqual(time_values[-1], "24.0")
+                self.assertEqual(time_values[-1], str(audio_duration))
                 self.assertIn("scale=1080:1920:force_original_aspect_ratio=increase", graph)
                 self.assertIn("crop=1080:1920", graph)
                 self.assertNotIn("gblur=", graph)
@@ -92,13 +92,13 @@ class PipelineRegressionTests(unittest.TestCase):
             return metric_by_start[float(start)]
 
         with patch.object(render_engine, "synthesize_human_voice",
-                          return_value=(voice, 24.0, "en-US-AndrewMultilingualNeural")), \
+                          return_value=(voice, audio_duration, "en-US-AndrewMultilingualNeural")), \
              patch.object(render_engine, "build_clean_ass_captions",
                           return_value=os.path.join(tmp.name, "captions.ass")), \
              patch.object(render_engine, "_score_motion_windows",
                           return_value=list(metric_by_start.keys())), \
              patch.object(render_engine, "_opening_window_metrics", side_effect=fake_metrics), \
-             patch.object(render_engine.subprocess, "check_output", side_effect=["45.0", "24.0"]), \
+             patch.object(render_engine.subprocess, "check_output", side_effect=["65.0", str(audio_duration)]), \
              patch.object(render_engine.subprocess, "run", side_effect=fake_run):
             result = render_engine.render_full_bleed_short(
                 source, "A current length test narration.", output,
@@ -122,13 +122,35 @@ class PipelineRegressionTests(unittest.TestCase):
             "accepted": accepted,
         }
 
-    def test_renderer_builds_full_bleed_22_to_28_second_short(self):
-        graph = self._run_renderer_fixture({
+    def test_renderer_scales_cuts_for_short_and_long_narrations(self):
+        short_graph = self._run_renderer_fixture({
             0.0: self._metrics(18.0, True),
             4.0: self._metrics(16.0, True),
-        })
-        self.assertIn("concat=n=7:v=1:a=0", graph)
-        self.assertIn("duration=0.35", graph)
+        }, audio_duration=14.0)
+        self.assertIn("concat=n=4:v=1:a=0", short_graph)
+
+        long_graph = self._run_renderer_fixture({
+            0.0: self._metrics(18.0, True),
+            4.0: self._metrics(16.0, True),
+        }, audio_duration=52.0)
+        self.assertIn("concat=n=15:v=1:a=0", long_graph)
+        self.assertIn("duration=0.35", long_graph)
+        self.assertIn("sidechaincompress=", long_graph)
+        self.assertIn("acrossfade=d=0.35", long_graph)
+
+    def test_ai_parser_accepts_natural_96_word_narration(self):
+        script = " ".join(
+            [f"Detail{i}" for i in range(1, 97)]
+        ) + "."
+        payload = {
+            "hook": "HIDDEN GAME DETAIL",
+            "script": script,
+            "title": "GTA 6: The Hidden Truth?",
+            "comment": "Did you notice it?",
+            "creative_angle": "story_fact",
+        }
+        parsed = main._parse_strict_ai_json(json.dumps(payload))
+        self.assertEqual(len(parsed["script"].split()), 96)
 
     def test_renderer_uses_bright_best_available_motion_fallback(self):
         graph = self._run_renderer_fixture({
