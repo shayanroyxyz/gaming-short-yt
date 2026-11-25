@@ -3,6 +3,10 @@ name: Telegram Bot Poller
 on:
   push:
     branches: [main]
+    paths:
+      - 'telegram_bot.py'
+      - '.github/workflows/telegram_listener.yml'
+      - 'requirements.txt'
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
