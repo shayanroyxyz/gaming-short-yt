@@ -77,7 +77,8 @@ class PipelineRegressionTests(unittest.TestCase):
             if "-filter_complex" in cmd:
                 graph = cmd[cmd.index("-filter_complex") + 1]
                 captured["graph"] = graph
-                self.assertEqual(cmd[cmd.index("-t") + 1], "24.0")
+                time_values = [cmd[i + 1] for i, value in enumerate(cmd[:-1]) if value == "-t"]
+                self.assertEqual(time_values[-1], "24.0")
                 self.assertIn("scale=1080:1920:force_original_aspect_ratio=increase", graph)
                 self.assertIn("crop=1080:1920", graph)
                 self.assertNotIn("gblur=", graph)
