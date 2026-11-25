@@ -331,7 +331,9 @@ def ask_ai_brain(prompt):
     return generate_viral_script_waterfall(prompt)
 
 def stream_unique_action_clips(hist, focus):
-    """Download a cloud source and extract a fresh, non-overlapping 45-second window."""
+    """Download a cloud source and extract a fresh, non-overlapping window up to 65 seconds."""
+    max_window_seconds = 65.0
+    min_window_seconds = 58.0
     conf = os.environ.get("RCLONE_CONF", "").strip()
     if not conf:
         raise RuntimeError("Missing RCLONE_CONF secret.")
@@ -359,8 +361,8 @@ def stream_unique_action_clips(hist, focus):
         detail = ", ".join(remote_errors) if remote_errors else "No supported video files found"
         raise RuntimeError(f"No source clips available in MEGA/pCloud GTA_Clips ({detail}).")
 
-    # Probe each cloud source's duration before selecting it. Candidate starts
-    # are spaced 45s apart; each extracted scene window is 45s long.
+    # Probe each cloud source's duration before selecting it. Use a 65s window
+    # when available (at least 58s is required for the longest supported Short).
     random.shuffle(pool)
     focus_key = str(focus or "auto").lower()
     focused_pool = [(r, n) for r, n in pool if focus_key != "auto" and focus_key in n.lower()]
@@ -399,9 +401,10 @@ def stream_unique_action_clips(hist, focus):
                 text=True, stderr=subprocess.PIPE, timeout=60
             ).strip()
             duration = float(duration_text)
-            if not (45.0 <= duration < 86400):
-                print(f">> Skipping {source_key}: invalid/short duration {duration:.2f}s.")
+            if not (min_window_seconds <= duration < 86400):
+                print(f">> Skipping {source_key}: source is shorter than {min_window_seconds:.0f}s ({duration:.2f}s).")
                 continue
+            window_seconds = min(max_window_seconds, duration)
             starts_used = []
             for entry in uploaded_entries:
                 entry_source = str(entry.get("source", ""))
@@ -410,11 +413,11 @@ def stream_unique_action_clips(hist, focus):
                         starts_used.append(float(entry.get("start_second", 0.0)))
                     except (TypeError, ValueError):
                         continue
-            window_count = int((duration - 45.0) // 45.0) + 1
-            candidate_starts = [float(i * 45) for i in range(window_count)]
+            window_count = int((duration - window_seconds) // max_window_seconds) + 1
+            candidate_starts = [float(i * max_window_seconds) for i in range(window_count)]
             available_starts = [
                 start for start in candidate_starts
-                if all(abs(start - used_start) >= 45.0 for used_start in starts_used)
+                if all(abs(start - used_start) >= max_window_seconds for used_start in starts_used)
             ]
             used_count = len(candidate_starts) - len(available_starts)
             used_ratio = used_count / max(1, window_count)
@@ -422,7 +425,7 @@ def stream_unique_action_clips(hist, focus):
                 exhausted_files.append(f"{source_key} ({used_ratio:.0%} used)")
                 continue
             start_second = random.choice(available_starts)
-            chosen = (remote, fname, local_full, duration, start_second, source_key, starts_used)
+            chosen = (remote, fname, local_full, duration, window_seconds, start_second, source_key, starts_used)
             break
         except Exception as exc:
             print(f"⚠️ Cloud source skipped; trying next source: {source_key}: {type(exc).__name__}: {exc}")
@@ -432,11 +435,11 @@ def stream_unique_action_clips(hist, focus):
     if chosen is None:
         details = "; ".join(exhausted_files[:5])
         raise RuntimeError(
-            "No unused 45-second source windows remain in the cloud pool; "
+            "No unused source windows up to 65 seconds remain in the cloud pool; "
             f"files are only exhausted after >85% of their candidate windows are used. {details}"
         )
 
-    remote, fname, local_full, source_duration, start_second, source_key, starts_used = chosen
+    remote, fname, local_full, source_duration, window_seconds, start_second, source_key, starts_used = chosen
     local_clip = "/tmp/gta_source_window.mp4"
     if os.path.exists(local_clip):
         os.remove(local_clip)
@@ -444,7 +447,7 @@ def stream_unique_action_clips(hist, focus):
         [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
             "-ss", f"{start_second:.3f}", "-i", local_full,
-            "-t", "45", "-map", "0:v:0", "-map", "0:a?",
+            "-t", f"{window_seconds:.1f}", "-map", "0:v:0", "-map", "0:a?",
             "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
             "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
@@ -453,7 +456,7 @@ def stream_unique_action_clips(hist, focus):
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=240
     )
     if not os.path.isfile(local_clip) or os.path.getsize(local_clip) < 100_000:
-        raise RuntimeError(f"Could not extract selected 45-second gameplay window from {fname}.")
+        raise RuntimeError(f"Could not extract selected {window_seconds:.1f}-second gameplay window from {fname}.")
 
     window_duration_text = subprocess.check_output(
         [
@@ -463,10 +466,10 @@ def stream_unique_action_clips(hist, focus):
         text=True, stderr=subprocess.PIPE, timeout=60
     ).strip()
     window_duration = float(window_duration_text)
-    if not (44.0 <= window_duration <= 45.5):
+    if not (window_seconds - 1.0 <= window_duration <= window_seconds + 0.5):
         raise RuntimeError(f"Extracted gameplay window has invalid duration: {window_duration:.2f}s")
 
-    source_hash = source_window_hash(source_key, start_second, 45.0)
+    source_hash = source_window_hash(source_key, start_second, window_seconds)
     uploaded_hashes = {
         entry.get("hash") for entry in uploaded_entries if entry.get("hash")
     }
@@ -477,10 +480,10 @@ def stream_unique_action_clips(hist, focus):
     hist["used_sources"] = used_sources[-500:]
     print(
         f">> Fresh window selected: {source_key} at {start_second:.0f}s "
-        f"(45s window; source duration {source_duration:.1f}s; "
+        f"({window_seconds:.0f}s window; source duration {source_duration:.1f}s; "
         f"{len(starts_used)} prior windows recorded)."
     )
-    return fname, local_clip, source_hash, start_second, 45.0, source_key
+    return fname, local_clip, source_hash, start_second, window_seconds, source_key
 
 def _parse_strict_ai_json(raw):
     cleaned = re.sub(r"^\s*\x60{3}(?:json)?\s*|\s*\x60{3}\s*$", "", str(raw).strip(), flags=re.IGNORECASE)
@@ -491,8 +494,8 @@ def _parse_strict_ai_json(raw):
     if any(not isinstance(data.get(k), str) or not data[k].strip() for k in required):
         raise ValueError("AI JSON must contain non-empty hook, script, title, and comment strings")
     words = re.findall(r"\b[\w’'-]+\b", data["script"])
-    if not 55 <= len(words) <= 68:
-        raise ValueError(f"narration must contain 55–68 words; received {len(words)}")
+    if not 35 <= len(words) <= 145:
+        raise ValueError(f"narration must contain 35–145 words; received {len(words)}")
     opener = " ".join(words[:6]).lower()
     if re.match(r"^(?:in this video|have you ever wondered|today we|let me show you|welcome back|what if you)", opener):
         raise ValueError("opening six words are slow/filler; begin with the visible action or payoff")
@@ -641,7 +644,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         "or surprising fact; narration need not describe driving. For a specific experiment, object, NPC behavior, glitch, "
         "physics test, secret, or Easter egg, choose clip_focused and narrate the visible setup through its exact payoff. "
         "Never invent what the frames show or make unsupported insider claims. "
-        "Write 55-68 spoken words, naturally paced for 22-27 seconds. The FIRST SIX WORDS must be a concrete, startling curiosity hook directly tied to the strongest visible action in the supplied frames (the same action that opens the Short). Start with the object/action/payoff itself. Never begin with filler such as In this video, Have you ever wondered, Today we, or Let me show you. Escalate quickly, deliver a clear payoff, and end on a seamless loop. "
+        "Write naturally between 35 and 145 spoken words, targeting a finished voiceover of 14-58 seconds. Use as many or as few words as the story genuinely needs: make it gripping, complete, specific, and free of fluff. Never force a fixed word count or reject a strong script just because it is 80, 96, or 120 words. The FIRST SIX WORDS must be a concrete, startling curiosity hook directly tied to the strongest visible action in the supplied frames (the same action that opens the Short). Start with the object/action/payoff itself. Never begin with filler such as In this video, Have you ever wondered, Today we, or Let me show you. Escalate quickly, deliver a clear payoff, and end on a seamless loop. "
         f"Filename: {clean_name}. Focus: {focus}. Current trend context: {hype_now}. Previous angle: {previous_angle}. "
         f"Channel's measured winning examples (titles/hooks/angles; use as evidence, do not copy): {winning_examples_text}. "
         f"Recent scripts to avoid:\\n{recent_avoid}\\n"
@@ -690,7 +693,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
             "You are text-only: do not invent what happens in those windows or describe unseen objects, rooms, characters, or events. "
             "Use only the supplied filename, focus, reliable game facts, and timestamp evidence. "
             "If a specific truthful action beat cannot be stated, do not return generic filler. "
-            "Return the same strict JSON schema and 55-68 spoken words."
+            "Return the same strict JSON schema; keep narration naturally between 35 and 145 spoken words (14-58 seconds), with no fixed-length target."
         )
         for provider in ("groq", "openrouter"):
             try:
