@@ -423,7 +423,7 @@ def run_ffmpeg_self_test():
         "testsrc2=size=720x1280:rate=30,"
         "drawgrid=width=80:height=80:thickness=4:color=yellow@0.9,"
         "rotate=angle='t*0.8':fillcolor=yellow",
-        "-t", "45", "-an", "-c:v", "libx264", "-preset", "ultrafast",
+        "-t", "65", "-an", "-c:v", "libx264", "-preset", "ultrafast",
         "-crf", "30", "-pix_fmt", "yuv420p", source
     ], check=True, timeout=240)
     script = (
