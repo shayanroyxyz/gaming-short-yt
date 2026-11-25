@@ -126,7 +126,7 @@ allowed_chats = {CHAT_ID}
 if CHANNEL_ID:
     allowed_chats.add(CHANNEL_ID)
 
-deadline = time.time() + 260
+deadline = time.time() + 210
 dirty = False
 
 while time.time() < deadline:
