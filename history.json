@@ -13,7 +13,8 @@
     "FIRE CANNOT STOP THIS",
     "Dart hit leads to abduction",
     "GTA5 Moment",
-    "GTA 6 PC Delay"
+    "GTA 6 PC Delay",
+    "Physics Engine Breaks"
   ],
   "recent_scripts": [
     {
@@ -70,6 +71,11 @@
       "source": "[GTA6]_Clip_339.mp4",
       "script": "GTA 6 PC release date remains a mystery. The hype is breaking the internet, with players debating if eighty dollars is worth the wait. Meanwhile, we are stuck grinding Los Santos one last time. Is the delay worth it for better graphics? Or are we already missing this classic world? Drop your theory below before the next update drops, because GTA 6 PC release date remains a mystery.",
       "created_at": "2026-11-25T01:28:25.977596+00:00"
+    },
+    {
+      "source": "[GTA6]_Clip_339.mp4",
+      "script": "The physics engine in Los Santos is about to glitch out. We are hitting high speeds through the city, but watch the car\u2019s handling. Instead of stabilizing, the vehicle begins to bounce violently against the asphalt. This is a known quirk in the collision detection when speed exceeds a certain threshold. The tires lose traction, and the chassis starts flipping unpredictably. It looks like a crash, but it is actually a physics stress test. The game struggles to calculate the rotation, resulting in this chaotic, ragdoll-like behavior. It is not a bug you can fix; it is a limitation of the old engine pushing its limits. Can you survive this bounce without flipping over? The physics engine breaks.",
+      "created_at": "2026-11-25T11:19:15.406470+00:00"
     }
   ],
   "recent_creative_entries": [
@@ -96,6 +102,14 @@
       "created_at": "2026-11-25T01:28:25.977576+00:00",
       "video_id": "ELrvCfbbzd8",
       "source_key": "pcloud:[GTA6]_Clip_339.mp4"
+    },
+    {
+      "title": "GTA 5 Physics Glitch: High Speed Bounce?",
+      "hook": "Physics Engine Breaks",
+      "angle": "story_fact",
+      "created_at": "2026-11-25T11:19:15.406455+00:00",
+      "video_id": "Usrf1JxRTss",
+      "source_key": "pcloud:[GTA6]_Clip_339.mp4"
     }
   ],
   "used_sources": [
@@ -112,7 +126,8 @@
     "pcloud:[GTA5]_Clip_6734.mp4@90s",
     "pcloud:[GTA6]_Clip_316.mp4@1485s",
     "mega:[GTA5]_Clip_6697.mp4@45s",
-    "pcloud:[GTA6]_Clip_339.mp4@675s"
+    "pcloud:[GTA6]_Clip_339.mp4@675s",
+    "pcloud:[GTA6]_Clip_339.mp4@585s"
   ],
   "uploaded_source_windows": [
     {
@@ -239,6 +254,15 @@
       "video_id": "ELrvCfbbzd8",
       "privacy_status": "public",
       "uploaded_at": "2026-11-25T01:29:08.986597+00:00"
+    },
+    {
+      "hash": "c23bed651cb40a7bf2a38018da0c2a784315308028b06eaf6fcb025915760280",
+      "source": "pcloud:[GTA6]_Clip_339.mp4",
+      "start_second": 585.0,
+      "duration": 65.0,
+      "video_id": "Usrf1JxRTss",
+      "privacy_status": "public",
+      "uploaded_at": "2026-11-25T11:20:56.248203+00:00"
     }
   ],
   "used_source_windows": [
@@ -290,6 +314,13 @@
       "duration": 45.0,
       "hash": "e3e9959399516f4b15be1a9612afa5fd2d2ee674b03c8d0514358f612d86f477",
       "video_id": "ELrvCfbbzd8"
+    },
+    {
+      "source": "pcloud:[GTA6]_Clip_339.mp4",
+      "start_second": 585.0,
+      "duration": 65.0,
+      "hash": "c23bed651cb40a7bf2a38018da0c2a784315308028b06eaf6fcb025915760280",
+      "video_id": "Usrf1JxRTss"
     }
   ],
   "published_source_files": [
