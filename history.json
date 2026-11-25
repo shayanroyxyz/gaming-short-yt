@@ -11,7 +11,8 @@
     "ONE SHOT CHANGES EVERYTHING",
     "TRUCK DRIVES ON OCEAN FLOOR",
     "FIRE CANNOT STOP THIS",
-    "Dart hit leads to abduction"
+    "Dart hit leads to abduction",
+    "GTA5 Moment"
   ],
   "recent_scripts": [
     {
@@ -58,6 +59,11 @@
       "source": "[GTA6]_Clip_316.mp4",
       "script": "Dart hit leads to abduction in this intense GTA mission. You are suddenly tranquilized in the field, blacking out instantly. When consciousness returns, you are trapped inside a mysterious red-lit shipping container. A voice commands you to rise and shine, leaving you with only one option: kick the heavy door until you break free. Will you escape this confined nightmare before time runs out?",
       "created_at": "2026-11-24T23:29:54.837636+00:00"
+    },
+    {
+      "source": "[GTA5]_Clip_6697.mp4",
+      "script": "This moment shows why GTA5 keeps players coming back. The world gives every small decision room to become something unexpected. There is no need for a scripted cutscene when the game systems create their own stories. Watch the details, notice how the moment unfolds, and decide what stands out most. That unpredictability is the reason these games are still worth revisiting.",
+      "created_at": "2026-11-25T00:59:19.139087+00:00"
     }
   ],
   "recent_creative_entries": [
@@ -68,6 +74,14 @@
       "created_at": "2026-11-24T23:29:54.837615+00:00",
       "video_id": "Bp-PXdt24Q4",
       "source_key": "pcloud:[GTA6]_Clip_316.mp4"
+    },
+    {
+      "title": "GTA5: What Happens Next",
+      "hook": "GTA5 Moment",
+      "angle": "story_fact",
+      "created_at": "2026-11-25T00:59:19.139068+00:00",
+      "video_id": "bsDaC_eSgR8",
+      "source_key": "mega:[GTA5]_Clip_6697.mp4"
     }
   ],
   "used_sources": [
@@ -82,7 +96,8 @@
     "pcloud:[GTA5]_Clip_6723.mp4@45s",
     "pcloud:[GTA5]_Clip_6723.mp4@135s",
     "pcloud:[GTA5]_Clip_6734.mp4@90s",
-    "pcloud:[GTA6]_Clip_316.mp4@1485s"
+    "pcloud:[GTA6]_Clip_316.mp4@1485s",
+    "mega:[GTA5]_Clip_6697.mp4@45s"
   ],
   "uploaded_source_windows": [
     {
@@ -191,6 +206,15 @@
       "video_id": "Bp-PXdt24Q4",
       "privacy_status": "public",
       "uploaded_at": "2026-11-24T23:30:48.032948+00:00"
+    },
+    {
+      "hash": "388913cfa095a28cb9dff90c265991f51ac88ac33ec1a9a17ca1573e4d2c5a64",
+      "source": "mega:[GTA5]_Clip_6697.mp4",
+      "start_second": 45.0,
+      "duration": 45.0,
+      "video_id": "bsDaC_eSgR8",
+      "privacy_status": "public",
+      "uploaded_at": "2026-11-25T01:00:16.158445+00:00"
     }
   ],
   "used_source_windows": [
@@ -228,6 +252,13 @@
       "duration": 45.0,
       "hash": "888389b1a88ff440593df2fd6116cc6dec45f7225ce7a3bf3db1fc89da4bdfd7",
       "video_id": "Bp-PXdt24Q4"
+    },
+    {
+      "source": "mega:[GTA5]_Clip_6697.mp4",
+      "start_second": 45.0,
+      "duration": 45.0,
+      "hash": "388913cfa095a28cb9dff90c265991f51ac88ac33ec1a9a17ca1573e4d2c5a64",
+      "video_id": "bsDaC_eSgR8"
     }
   ],
   "published_source_files": [
@@ -238,6 +269,7 @@
     "[GTA5]_Clip_6697.mp4",
     "[GTA5]_Clip_6723.mp4",
     "[GTA6]_Clip_316.mp4",
-    "pcloud:[GTA6]_Clip_316.mp4"
+    "pcloud:[GTA6]_Clip_316.mp4",
+    "mega:[GTA5]_Clip_6697.mp4"
   ]
 }
