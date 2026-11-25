@@ -243,7 +243,7 @@ def _opening_window_metrics(src_video, start, duration=3.5, fps=2):
 
 
 def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.mp4", top_hook="", creative_angle="clip_focused", voice_audio_override=None):
-    """Render a 22–28 second vertical Short with motion-ranked action-first cuts."""
+    """Render a 14–58 second vertical Short with duration-matched action-first cuts."""
     if not os.path.isfile(src_video) or os.path.getsize(src_video) < 100_000:
         raise RuntimeError(f"Source video is missing or too small: {src_video}")
     if voice_audio_override:
@@ -257,14 +257,14 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         tts_result = synthesize_human_voice(script_text)
         mp3_path, audio_dur, voice_used = tts_result[:3]
         word_boundaries = tts_result[3] if len(tts_result) > 3 else None
-    if not (22.0 <= audio_dur <= 28.0):
-        raise RuntimeError(f"Narration must be 22–28 seconds at natural pacing; got {audio_dur:.2f}s.")
+    if not (14.0 <= audio_dur <= 58.0):
+        raise RuntimeError(f"Narration must be 14–58 seconds for a YouTube Short; got {audio_dur:.2f}s.")
 
     target_dur = audio_dur
-    cut_count = max(1, int((target_dur + 3.49) // 3.5))
+    cut_count = max(1, int((target_dur + 3.499999) // 3.5))
     segment_dur = target_dur / cut_count
-    if not (3.0 <= segment_dur <= 4.0):
-        raise RuntimeError(f"Invalid fast-cut length: {segment_dur:.2f}s.")
+    if not (3.0 <= segment_dur <= 3.5):
+        raise RuntimeError(f"Invalid duration-matched gameplay cut length: {segment_dur:.2f}s.")
 
     fitted_voice = "/tmp/voice_fitted.wav" if voice_audio_override else "/tmp/voice_fitted.mp3"
     if voice_audio_override:
@@ -413,7 +413,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     return out_video
 
 def run_ffmpeg_self_test():
-    """Render a synthetic 24s Short through the production FFmpeg graph."""
+    """Render a synthetic duration-flexible Short through the production FFmpeg graph."""
     source = "/tmp/preflight_source.mp4"
     voice = "/tmp/preflight_voice.mp3"
     output = "/tmp/preflight_render.mp4"
@@ -435,18 +435,9 @@ def run_ffmpeg_self_test():
         "and why its driving system deserves another look."
     )
     _, voice_duration, voice_name, _ = synthesize_human_voice(script, out_mp3=voice)
-    if not (22.0 <= voice_duration <= 28.0):
-        adjusted_voice = "/tmp/preflight_voice_adjusted.mp3"
-        atempo = voice_duration / 24.0
-        if not (0.5 <= atempo <= 2.0):
-            raise RuntimeError(f"Preflight TTS duration cannot be normalized safely: {voice_duration:.2f}s")
-        subprocess.run([
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", voice,
-            "-filter:a", f"atempo={atempo:.6f}", "-c:a", "libmp3lame",
-            "-q:a", "3", adjusted_voice
-        ], check=True, timeout=90)
-        voice = adjusted_voice
-    print(f"[preflight] TTS fixture generated with {voice_name}; original duration={voice_duration:.2f}s")
+    if not (14.0 <= voice_duration <= 58.0):
+        raise RuntimeError(f"Preflight TTS fixture must naturally land in 14–58 seconds; got {voice_duration:.2f}s")
+    print(f"[preflight] TTS fixture generated with {voice_name}; natural duration={voice_duration:.2f}s")
     rendered = render_full_bleed_short(
         source, script, output, top_hook="THAT LANDING WAS IMPOSSIBLE",
         creative_angle="clip_focused", voice_audio_override=voice
@@ -459,7 +450,7 @@ def run_ffmpeg_self_test():
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", rendered
     ], text=True, timeout=30).strip())
-    if probe != "1080x1920" or not (22.0 <= duration <= 28.0):
+    if probe != "1080x1920" or not (14.0 <= duration <= 58.0):
         raise RuntimeError(f"Preflight output invalid: size={probe}, duration={duration:.3f}s")
     print(
         f"FFMPEG_PREFLIGHT_OK: {rendered}; video={probe}; duration={duration:.3f}s; "
