@@ -261,9 +261,9 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         raise RuntimeError(f"Narration must be 14–58 seconds for a YouTube Short; got {audio_dur:.2f}s.")
 
     target_dur = audio_dur
-    cut_count = max(1, int((target_dur + 3.499999) // 3.5))
+    cut_count = max(1, int(round(target_dur / 3.5)))
     segment_dur = target_dur / cut_count
-    if not (3.0 <= segment_dur <= 3.5):
+    if not (3.0 <= segment_dur <= 4.0):
         raise RuntimeError(f"Invalid duration-matched gameplay cut length: {segment_dur:.2f}s.")
 
     fitted_voice = "/tmp/voice_fitted.wav" if voice_audio_override else "/tmp/voice_fitted.mp3"
