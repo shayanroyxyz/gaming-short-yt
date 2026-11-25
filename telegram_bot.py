@@ -200,11 +200,12 @@ while time.time() < deadline:
             if command == "/cancel" or text == "❌ Cancel":
                 cfg["pending_url"] = ""
                 send_msg(chat_id, "❌ Cancelled. Ready for your next command!", MAIN_KEYBOARD)
-            elif "youtu.be/" in text or "youtube.com/" in text:
-                parts = text.split(None, 1)
-                url = parts[0]
-                if len(parts) > 1 and len(parts[1].strip()) > 2:
-                    queue_video_link(chat_id, url, parts[1])
+            elif re.search(r"https?://(?:www\\.)?(?:youtube\\.com|youtu\\.be)/[^\\s<>]+", text, re.I):
+                match = re.search(r"https?://(?:www\\.)?(?:youtube\\.com|youtu\\.be)/[^\\s<>]+", text, re.I)
+                url = match.group(0).rstrip(".,;!?)")
+                label = (text[:match.start()] + " " + text[match.end():]).strip()
+                if len(label) > 2:
+                    queue_video_link(chat_id, url, label)
                     cfg["pending_url"] = ""
                 else:
                     cfg["pending_url"] = url
@@ -236,7 +237,8 @@ while time.time() < deadline:
                 else:
                     send_msg(chat_id, "No recent Short ID found to delete.", MAIN_KEYBOARD)
             elif text in ["🎯 Focus: GTA 6", "🎯 Focus: Auto"] or command == "/focus":
-                val = "gta6" if "GTA 6" in text else ("auto" if "Auto" in text else text.replace("/focus", "").strip().lower() or "auto")
+                focus_arg = text.split(None, 1)[1].strip() if command == "/focus" and len(text.split(None, 1)) > 1 else ""
+                val = "gta6" if "GTA 6" in text else ("auto" if "Auto" in text else focus_arg.lower() or "auto")
                 cfg["focus"] = val
                 send_msg(chat_id, f"🎯 Focus mode switched to: {val.upper()}", MAIN_KEYBOARD)
             elif text in ["🔥 Live Hype", "/hype"]:
