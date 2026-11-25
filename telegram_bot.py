@@ -128,6 +128,7 @@ if CHANNEL_ID:
 
 deadline = time.time() + 210
 dirty = False
+consecutive_409 = 0
 
 while time.time() < deadline:
     try:
@@ -139,9 +140,14 @@ while time.time() < deadline:
             time.sleep(3)
             continue
         if response.status_code == 409 or resp.get("error_code") == 409:
-            print(f"Telegram getUpdates 409 Conflict (another poller or webhook is active); retrying in 3s: {resp}", flush=True)
+            consecutive_409 += 1
+            print(f"Telegram getUpdates 409 Conflict ({consecutive_409}/3); another poller is active. Retrying in 3s.", flush=True)
+            if consecutive_409 >= 3:
+                print("Telegram poller exiting cleanly after repeated 409 conflicts; the next scheduled poll will retry.", flush=True)
+                break
             time.sleep(3)
             continue
+        consecutive_409 = 0
         if not response.ok or not resp.get("ok"):
             description = str(resp.get("description", response.text))
             print(f"Telegram getUpdates API error HTTP {response.status_code}: {description}", flush=True)
