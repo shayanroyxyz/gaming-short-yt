@@ -36,7 +36,12 @@ def send_msg(target_chat, text, kb=MAIN_KEYBOARD):
         payload = {"chat_id": target_chat, "text": text}
         if kb and not str(target_chat).startswith("-100"):
             payload["reply_markup"] = json.dumps(kb)
-        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data=payload, timeout=15)
+        try:
+            response = requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data=payload, timeout=15)
+            if not response.ok:
+                print(f"Telegram sendMessage failed: HTTP {response.status_code}: {response.text[:500]}", flush=True)
+        except requests.RequestException as exc:
+            print(f"Telegram sendMessage request failed: {type(exc).__name__}: {exc}", flush=True)
 
 def trigger_workflow(wf_file):
     if not GH_PAT:
@@ -96,9 +101,26 @@ def queue_video_link(target_chat, url, raw_name):
 if not TOKEN or not CHAT_ID:
     exit(0)
 
-requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", timeout=10)
+try:
+    webhook_resp = requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", params={"drop_pending_updates": "false"}, timeout=10)
+    webhook_data = webhook_resp.json()
+    if not webhook_resp.ok or not webhook_data.get("ok"):
+        print(f"Telegram deleteWebhook warning: HTTP {webhook_resp.status_code}: {webhook_data}", flush=True)
+except (requests.RequestException, ValueError) as exc:
+    print(f"Telegram deleteWebhook warning: {type(exc).__name__}: {exc}", flush=True)
 
-offset = int(open("tg_offset.txt").read().strip()) if os.path.exists("tg_offset.txt") else 0
+# bot_state.json is the single canonical offset store. Recover safely from malformed state.
+try:
+    state = json.load(open("bot_state.json", encoding="utf-8")) if os.path.exists("bot_state.json") else {}
+    raw_offset = state.get("offset", 0)
+    offset = int(raw_offset)
+    if offset < 0:
+        raise ValueError("negative Telegram update offset")
+except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+    print(f"Invalid bot_state.json offset; resetting to 0: {exc}", flush=True)
+    offset = 0
+    state = {}
+state["offset"] = offset
 cfg = json.load(open("config.json")) if os.path.exists("config.json") else {"focus": "auto", "last_video_id": "", "pending_url": ""}
 allowed_chats = {CHAT_ID}
 if CHANNEL_ID:
@@ -109,10 +131,34 @@ dirty = False
 
 while time.time() < deadline:
     try:
-        resp = requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates", params={"offset": offset, "timeout": 20}, timeout=25).json()
+        response = requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates", params={"offset": offset, "timeout": 20}, timeout=25)
+        try:
+            resp = response.json()
+        except ValueError:
+            print(f"Telegram getUpdates returned non-JSON HTTP {response.status_code}: {response.text[:500]}", flush=True)
+            time.sleep(3)
+            continue
+        if response.status_code == 409 or resp.get("error_code") == 409:
+            print(f"Telegram getUpdates 409 Conflict (another poller or webhook is active): {resp}", flush=True)
+            raise SystemExit("Telegram polling conflict: ensure only one poller is running")
+        if not response.ok or not resp.get("ok"):
+            description = str(resp.get("description", response.text))
+            print(f"Telegram getUpdates API error HTTP {response.status_code}: {description}", flush=True)
+            if response.status_code == 400 and "offset" in description.lower():
+                offset = 0
+                state["offset"] = 0
+                with open("bot_state.json", "w", encoding="utf-8") as state_file:
+                    json.dump(state, state_file, indent=2)
+                print("Reset invalid Telegram offset to 0; retrying.", flush=True)
+                continue
+            time.sleep(3)
+            continue
         updates = resp.get("result", [])
-    except Exception:
-        time.sleep(2)
+    except SystemExit:
+        raise
+    except requests.RequestException as exc:
+        print(f"Telegram getUpdates network error: {type(exc).__name__}: {exc}", flush=True)
+        time.sleep(3)
         continue
 
     for u in updates:
@@ -151,7 +197,7 @@ while time.time() < deadline:
             if not text:
                 continue
 
-            if text == "❌ Cancel":
+            if command == "/cancel" or text == "❌ Cancel":
                 cfg["pending_url"] = ""
                 send_msg(chat_id, "❌ Cancelled. Ready for your next command!", MAIN_KEYBOARD)
             elif "youtu.be/" in text or "youtube.com/" in text:
@@ -163,7 +209,9 @@ while time.time() < deadline:
                 else:
                     cfg["pending_url"] = url
                     send_msg(chat_id, "🎬 Link received! Type a custom file name (e.g. GTA6_Police_Chase) OR tap a game tag button below:", GAME_TAG_KEYBOARD)
-            elif cfg.get("pending_url"):
+            elif command == "/menu":
+                send_msg(chat_id, "🎮 Owner Control Panel Active — Tap any button below or paste a YouTube gameplay link:", MAIN_KEYBOARD)
+            elif cfg.get("pending_url") and not command:
                 tag_map = {"🎮 [GTA6]": "GTA6", "🚗 [GTA5]": "GTA5", "🗽 [GTA4]": "GTA4", "⛏️ [Minecraft]": "Minecraft", "🧱 [Roblox]": "Roblox", "🔫 [Valorant]": "Valorant"}
                 if text in tag_map:
                     auto_name = f"[{tag_map[text]}]_Gameplay_{int(time.time()) % 10000}.mp4"
@@ -173,7 +221,7 @@ while time.time() < deadline:
                 cfg["pending_url"] = ""
             elif text == "➕ Add Video Link":
                 send_msg(chat_id, "📎 Paste any YouTube gameplay link right now (720p/1080p) and I will ask you what to name it!", MAIN_KEYBOARD)
-            elif text in ["🚀 Make Short Now", "/make"]:
+            elif text == "🚀 Make Short Now" or command == "/make":
                 dispatch_result = trigger_workflow("auto_upload.yml")
                 if dispatch_result == "HTTP 204 Accepted":
                     send_msg(chat_id, f"🚀 GitHub accepted the workflow dispatch ({dispatch_result}). Publishing is not confirmed until the run completes.", MAIN_KEYBOARD)
@@ -187,13 +235,13 @@ while time.time() < deadline:
                     cfg["last_video_id"] = ""
                 else:
                     send_msg(chat_id, "No recent Short ID found to delete.", MAIN_KEYBOARD)
-            elif text in ["🎯 Focus: GTA 6", "🎯 Focus: Auto"] or text.startswith("/focus"):
+            elif text in ["🎯 Focus: GTA 6", "🎯 Focus: Auto"] or command == "/focus":
                 val = "gta6" if "GTA 6" in text else ("auto" if "Auto" in text else text.replace("/focus", "").strip().lower() or "auto")
                 cfg["focus"] = val
                 send_msg(chat_id, f"🎯 Focus mode switched to: {val.upper()}", MAIN_KEYBOARD)
             elif text in ["🔥 Live Hype", "/hype"]:
                 send_msg(chat_id, "🔥 Live US Gaming Hype Radar:\n• " + get_live_hype(), MAIN_KEYBOARD)
-            elif text in ["📊 Cloud Status", "/status"]:
+            elif text == "📊 Cloud Status" or command == "/status":
                 conf = os.environ.get("RCLONE_CONF", "").strip()
                 os.makedirs(os.path.expanduser("~/.config/rclone"), exist_ok=True)
                 open(os.path.expanduser("~/.config/rclone/rclone.conf"), "w").write(conf)
@@ -216,19 +264,25 @@ while time.time() < deadline:
                     hist_cnt = len(json.load(open("history.json")).get("used_windows", [])) if os.path.exists("history.json") else 0
                     last_v = cfg.get("last_video_id") or "None yet"
                     send_msg(chat_id, f"📈 Pipeline Upload Stats:\n• Total Shorts Auto-Published: {hist_cnt}\n• Latest Short: https://youtube.com/shorts/{last_v}\n(Note: Refresh token is upload-only; re-auth with youtube.readonly scope if you want live sub counts here)", MAIN_KEYBOARD)
-            elif text in ["❓ Help", "/help", "/start", "/menu"]:
+            elif text in ["❓ Help", "/help", "/start"] or command in ["/help", "/start"]:
                 send_msg(chat_id, "🎮 Owner Control Panel Active — Tap any button below or paste a YouTube gameplay link:", MAIN_KEYBOARD)
         except Exception as err:
             send_msg(CHAT_ID, f"⚠️ Command error: {err}", MAIN_KEYBOARD)
 
     if dirty:
-        open("tg_offset.txt", "w").write(str(offset))
-        json.dump(cfg, open("config.json", "w"), indent=2)
+        state["offset"] = offset
+        with open("bot_state.json", "w", encoding="utf-8") as state_file:
+            json.dump(state, state_file, indent=2)
+        with open("config.json", "w", encoding="utf-8") as config_file:
+            json.dump(cfg, config_file, indent=2)
 
 subprocess.run(["git", "config", "user.name", "OwnerBot"], check=False)
 subprocess.run(["git", "config", "user.email", "bot@users.noreply.github.com"], check=False)
 subprocess.run(["git", "add", "links.txt", "config.json", "tg_offset.txt"], check=False)
 subprocess.run(["git", "commit", "-m", "Telegram state sync"], check=False)
 if GH_PAT:
-    subprocess.run(["git", "push", f"https://x-access-token:{GH_PAT}@github.com/{REPO}.git"], check=False)
-trigger_workflow("telegram_listener.yml")
+    subprocess.run(["git", "pull", "--rebase", "origin", "main"], check=False)
+    push_result = subprocess.run(["git", "push", f"https://x-access-token:{GH_PAT}@github.com/{REPO}.git"], capture_output=True, text=True)
+    if push_result.returncode:
+        print(f"Telegram state push failed: {push_result.stderr[-1000:]}", flush=True)
+print(f"Telegram poller finished cleanly; next offset={offset}", flush=True)
