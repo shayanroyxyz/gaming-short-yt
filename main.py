@@ -95,6 +95,9 @@ def _discover_gemini_models(api_key):
             "https://generativelanguage.googleapis.com/v1beta/models",
             params={"key": api_key, "pageSize": 1000}, timeout=20
         )
+        if response.status_code in (401, 403):
+            print(f"[AI] Gemini model discovery unauthorized (HTTP {response.status_code}); handing off to Groq/OpenRouter.", flush=True)
+            return []
         response.raise_for_status()
         models = response.json().get("models", [])
         eligible = []
@@ -169,6 +172,9 @@ def _gemini_generate(api_key, parts, generation_config=None):
                     headers={"Content-Type": "application/json"},
                     json=payload, timeout=60
                 )
+                if response.status_code in (401, 403):
+                    print(f"[AI] Gemini {model} unauthorized (HTTP {response.status_code}); handing off to Groq/OpenRouter.", flush=True)
+                    return None, None
                 if response.status_code == 503 or response.status_code == 429:
                     if attempt < 2:
                         delay = 2 ** attempt
@@ -338,7 +344,7 @@ def ask_ai_brain(prompt):
 def stream_unique_action_clips(hist, focus):
     """Download a cloud source and extract a fresh, non-overlapping window up to 65 seconds."""
     max_window_seconds = 65.0
-    min_window_seconds = 58.0
+    min_window_seconds = 58.5
     conf = os.environ.get("RCLONE_CONF", "").strip()
     if not conf:
         raise RuntimeError("Missing RCLONE_CONF secret.")
@@ -367,7 +373,7 @@ def stream_unique_action_clips(hist, focus):
         raise RuntimeError(f"No source clips available in MEGA/pCloud GTA_Clips ({detail}).")
 
     # Probe each cloud source's duration before selecting it. Use a 65s window
-    # when available (at least 58s is required for the longest supported Short).
+    # when available (at least 58.5s is required for the longest supported Short).
     random.shuffle(pool)
     focus_key = str(focus or "auto").lower()
     focused_pool = [(r, n) for r, n in pool if focus_key != "auto" and focus_key in n.lower()]
@@ -597,20 +603,11 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     ).strip()
     duration = max(1.0, float(duration_text))
     frame_paths = []
-    # Sample the first window that also passes the renderer's strict opening gate.
-    first_action_start = None
-    for candidate_start in _render_engine._score_motion_windows(local_clip, duration, 3.5):
-        try:
-            opening_metrics = _render_engine._opening_window_metrics(local_clip, candidate_start, 3.5)
-        except Exception as exc:
-            print(f"[visual-analysis] Opening candidate {candidate_start:.2f}s could not be measured: {exc}")
-            continue
-        if opening_metrics.get("accepted"):
-            first_action_start = candidate_start
-            print(f"[visual-analysis] Using bright action-first opening at {candidate_start:.2f}s: {opening_metrics}")
-            break
-    if first_action_start is None:
-        raise RuntimeError("No bright, high-contrast, saturated high-motion opening passed the strict visual gate; refusing a weak hook.")
+    # Prefer a strict visual match, but always fall back to the best available window.
+    ranked_openings = _render_engine._score_motion_windows(local_clip, duration, 3.5)
+    first_action_start, opening_metrics = _render_engine.select_opening_window(
+        local_clip, ranked_openings, 3.5, label="visual-analysis"
+    )
     sample_times = [
         first_action_start + 0.35,
         first_action_start + 1.25,
@@ -649,7 +646,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         "or surprising fact; narration need not describe driving. For a specific experiment, object, NPC behavior, glitch, "
         "physics test, secret, or Easter egg, choose clip_focused and narrate the visible setup through its exact payoff. "
         "Never invent what the frames show or make unsupported insider claims. "
-        "Write naturally between 35 and 145 spoken words, targeting a finished voiceover of 14-58 seconds. Use as many or as few words as the story genuinely needs: make it gripping, complete, specific, and free of fluff. Never force a fixed word count or reject a strong script just because it is 80, 96, or 120 words. The FIRST SIX WORDS must be a concrete, startling curiosity hook directly tied to the strongest visible action in the supplied frames (the same action that opens the Short). Start with the object/action/payoff itself. Never begin with filler such as In this video, Have you ever wondered, Today we, or Let me show you. Escalate quickly, deliver a clear payoff, and end on a seamless loop. "
+        "Write naturally between 35 and 145 spoken words, targeting a finished voiceover of 14-58.5 seconds. Use as many or as few words as the story genuinely needs: make it gripping, complete, specific, and free of fluff. Never force a fixed word count or reject a strong script just because it is 80, 96, or 120 words. The FIRST SIX WORDS must be a concrete, startling curiosity hook directly tied to the strongest visible action in the supplied frames (the same action that opens the Short). Start with the object/action/payoff itself. Never begin with filler such as In this video, Have you ever wondered, Today we, or Let me show you. Escalate quickly, deliver a clear payoff, and end on a seamless loop. "
         f"Filename: {clean_name}. Focus: {focus}. Current trend context: {hype_now}. Previous angle: {previous_angle}. "
         f"Channel's measured winning examples (titles/hooks/angles; use as evidence, do not copy): {winning_examples_text}. "
         f"Recent scripts to avoid:\\n{recent_avoid}\\n"
@@ -698,7 +695,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
             "You are text-only: do not invent what happens in those windows or describe unseen objects, rooms, characters, or events. "
             "Use only the supplied filename, focus, reliable game facts, and timestamp evidence. "
             "If a specific truthful action beat cannot be stated, do not return generic filler. "
-            "Return the same strict JSON schema; keep narration naturally between 35 and 145 spoken words (14-58 seconds), with no fixed-length target."
+            "Return the same strict JSON schema; keep narration naturally between 35 and 145 spoken words (14-58.5 seconds), with no fixed-length target."
         )
         for provider in ("groq", "openrouter"):
             try:
@@ -935,16 +932,28 @@ def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist
     ig_status = publish_instagram_reel(pcloud_target, ig_caption)
 
     privacy_line = f"YouTube privacyStatus: {privacy_status}"
-    if privacy_check_detail:
-        privacy_line += f"\nPrivacy verification error: {privacy_check_detail}"
-    summary = (
-        f"✅ YouTube upload succeeded!\n"
-        f"Title: {title}\n"
-        f"YouTube: https://youtube.com/shorts/{vid_id}\n"
-        f"{privacy_line}\n"
-        f"YouTube first comment: {comment_status}\n"
-        f"Instagram Reels: {ig_status}"
+    privacy_permission_denied = bool(
+        privacy_check_detail and re.search(r"\b403\b|insufficientPermissions", privacy_check_detail, re.I)
     )
+    comment_permission_denied = bool(
+        re.search(r"\b403\b|insufficientPermissions", comment_status, re.I)
+    )
+    if privacy_check_detail and not privacy_permission_denied:
+        privacy_line += f"\nPrivacy verification error: {privacy_check_detail}"
+    summary_lines = [
+        "✅ YouTube upload succeeded!",
+        f"Title: {title}",
+        f"YouTube: https://youtube.com/shorts/{vid_id}",
+        privacy_line,
+    ]
+    if comment_status and not comment_permission_denied:
+        summary_lines.append(f"YouTube first comment: {comment_status}")
+    summary_lines.append(f"Instagram Reels: {ig_status}")
+    summary = "\n".join(summary_lines)
+    if privacy_permission_denied:
+        print("YouTube privacy verification skipped in Telegram summary (HTTP 403 insufficientPermissions).", flush=True)
+    if comment_permission_denied:
+        print("YouTube first comment skipped in Telegram summary (HTTP 403 insufficientPermissions).", flush=True)
     deliver_to_telegram(summary, "final.mp4", ig_caption)
     return vid_id
 
@@ -971,9 +980,9 @@ if __name__ == "__main__":
              "-of", "default=noprint_wrappers=1:nokey=1", rendered_path],
             text=True, timeout=60
         ).strip())
-        if not (22.0 <= final_duration <= 28.0):
+        if not (14.0 <= final_duration <= 58.5):
             raise RuntimeError(
-                f"Rendered Short must be 22–28 seconds; got {final_duration:.2f}s. Refusing to publish."
+                f"Rendered Short must be 14.0–58.5 seconds; got {final_duration:.2f}s. Refusing to publish."
             )
         uploaded_video_id = publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist, source_hash, source_key, start_second, source_duration)
         if hist.get("recent_creative_entries"):

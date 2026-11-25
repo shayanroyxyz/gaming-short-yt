@@ -133,13 +133,13 @@ class PipelineRegressionTests(unittest.TestCase):
         return captured["graph"]
 
     @staticmethod
-    def _metrics(motion, accepted):
-        quality_ok = True
+    def _metrics(motion, accepted, luma=128.0, contrast=55.0, saturation=90.0):
+        quality_ok = luma >= 85 and saturation >= 35 and contrast >= 38
         return {
-            "mean_luma": 128.0,
-            "min_frame_luma": 100.0,
-            "saturation": 90.0,
-            "contrast": 55.0,
+            "mean_luma": luma,
+            "min_frame_luma": luma,
+            "saturation": saturation,
+            "contrast": contrast,
             "motion": motion,
             "quality_ok": quality_ok,
             "accepted": accepted,
@@ -155,7 +155,7 @@ class PipelineRegressionTests(unittest.TestCase):
         long_graph = self._run_renderer_fixture({
             0.0: self._metrics(18.0, True),
             4.0: self._metrics(16.0, True),
-        }, audio_duration=58.0)
+        }, audio_duration=58.5)
         self.assertIn("concat=n=17:v=1:a=0", long_graph)
         self.assertIn("duration=0.35", long_graph)
         self.assertIn("sidechaincompress=", long_graph)
@@ -175,13 +175,21 @@ class PipelineRegressionTests(unittest.TestCase):
         parsed = main._parse_strict_ai_json(json.dumps(payload))
         self.assertEqual(len(parsed["script"].split()), 96)
 
-    def test_renderer_uses_bright_best_available_motion_fallback(self):
+    def test_renderer_uses_best_combined_visual_fallback_without_quality_floor(self):
         graph = self._run_renderer_fixture({
-            0.0: self._metrics(8.2, False),
-            4.0: self._metrics(6.1, False),
-            8.0: self._metrics(9.1, False),
+            0.0: self._metrics(10.0, False, luma=200.0, contrast=80.0, saturation=18.0),
+            4.0: self._metrics(45.0, False, luma=60.0, contrast=50.0, saturation=12.0),
+            8.0: self._metrics(25.0, False, luma=120.0, contrast=60.0, saturation=25.0),
         })
-        self.assertIn("[0:v]trim=start=8.000", graph)
+        self.assertIn("[0:v]trim=start=0.000", graph)
+
+    def test_visual_score_prefers_brightness_contrast_motion_balance(self):
+        bright = self._metrics(10.0, False, luma=200.0, contrast=80.0, saturation=18.0)
+        dark_fast = self._metrics(45.0, False, luma=60.0, contrast=50.0, saturation=12.0)
+        self.assertGreater(
+            render_engine._visual_window_score(bright),
+            render_engine._visual_window_score(dark_fast),
+        )
 
     def test_caption_chunks_use_72px_centered_word_boundaries(self):
         with tempfile.TemporaryDirectory() as tmp:
