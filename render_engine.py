@@ -353,15 +353,27 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     )
     cut_starts = [opening_start] + [x for x in ranked_starts if abs(x - opening_start) > 0.01]
     if len(cut_starts) < cut_count:
-        for candidate in [i * segment_dur for i in range(int(source_dur // segment_dur) + 1)]:
-            if candidate + segment_dur <= source_dur and all(
-                abs(candidate - chosen) >= segment_dur * 0.85 for chosen in cut_starts
-            ):
+        # Fill sparse rankings with evenly spaced, partially overlapping windows.
+        # A valid source can contain enough footage even when the top-ranked
+        # candidates cluster around one timestamp.
+        spacing = max(0.75, segment_dur * 0.5)
+        candidate = 0.0
+        while candidate + segment_dur <= source_dur and len(cut_starts) < cut_count:
+            if all(abs(candidate - chosen) >= segment_dur * 0.45 for chosen in cut_starts):
+                cut_starts.append(candidate)
+            candidate += spacing
+    if len(cut_starts) < cut_count:
+        # Final deterministic fill: use any remaining legal start positions.
+        available = max(0.0, source_dur - segment_dur)
+        steps = max(1, cut_count * 4)
+        for index in range(steps + 1):
+            candidate = available * index / steps
+            if all(abs(candidate - chosen) >= 0.05 for chosen in cut_starts):
                 cut_starts.append(candidate)
             if len(cut_starts) >= cut_count:
                 break
     if len(cut_starts) < cut_count:
-        raise RuntimeError("Could not find enough distinct source windows for fast cuts.")
+        raise RuntimeError("Source footage is too short to construct the requested cut sequence.")
     cut_starts = cut_starts[:cut_count]
 
     hook_path = "/tmp/hook_banner.txt"
