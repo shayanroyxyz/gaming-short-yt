@@ -496,6 +496,28 @@ def stream_unique_action_clips(hist, focus):
     )
     return fname, local_clip, source_hash, start_second, window_seconds, source_key
 
+def _normalize_creator_script(script):
+    """Replace stock AI-sounding phrases with plain spoken gamer wording."""
+    replacements = (
+        (r"\\bbreaking the internet\\b", "blowing up online"),
+        (r"\\bin today's gaming landscape\\b", "in gaming right now"),
+        (r"\\bwithout further ado\\b", "here's the thing"),
+        (r"\\bin conclusion\\b", "so"),
+        (r"\\bfurthermore\\b", "plus"),
+        (r"\\bmoreover\\b", "and"),
+        (r"\\bgame-changer\\b", "big shift"),
+        (r"\\bdelve into\\b", "look at"),
+        (r"\\bdelve\\b", "look"),
+        (r"\\bunleash\\b", "show"),
+        (r"\\brealm\\b", "world"),
+        (r"\\byou won't believe\\b", "this is wild"),
+    )
+    normalized = str(script or "")
+    for pattern, replacement in replacements:
+        normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+    return re.sub(r"\\s+", " ", normalized).strip()
+
+
 def _parse_strict_ai_json(raw):
     cleaned = re.sub(r"^\s*\x60{3}(?:json)?\s*|\s*\x60{3}\s*$", "", str(raw).strip(), flags=re.IGNORECASE)
     data = json.loads(cleaned)
@@ -504,6 +526,7 @@ def _parse_strict_ai_json(raw):
     required = ("hook", "script", "title", "comment", "creative_angle")
     if any(not isinstance(data.get(k), str) or not data[k].strip() for k in required):
         raise ValueError("AI JSON must contain non-empty hook, script, title, and comment strings")
+    data["script"] = _normalize_creator_script(data["script"])
     words = re.findall(r"\b[\w’'-]+\b", data["script"])
     if not 35 <= len(words) <= 145:
         raise ValueError(f"narration must contain 35–145 words; received {len(words)}")
