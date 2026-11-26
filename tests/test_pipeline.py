@@ -273,7 +273,7 @@ class PipelineRegressionTests(unittest.TestCase):
     def test_caption_chunks_use_76px_centered_one_to_two_word_boundaries(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "captions.ass")
-            script = "One two three four five six seven eight"
+            script = "One two crash four five six seven eight"
             boundaries = [
                 {"text": word, "start": i * 0.3, "duration": 0.2}
                 for i, word in enumerate(script.split())
@@ -286,7 +286,7 @@ class PipelineRegressionTests(unittest.TestCase):
             self.assertIn(",70,70,0,1", content)
             self.assertIn(r"\bord6", content)
             self.assertIn("ONE TWO", content)
-            self.assertIn("THREE FOUR", content)
+            self.assertIn("CRASH FOUR", content)
             self.assertIn(r"\c&H0000FFFF&", content)
             self.assertIn(r"\an5\pos(540,1050)", content)
             self.assertIn(r"\fscx100", content)
