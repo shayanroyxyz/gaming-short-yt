@@ -160,13 +160,13 @@ class PipelineRegressionTests(unittest.TestCase):
             0.0: self._metrics(18.0, True),
             4.0: self._metrics(16.0, True),
         }, audio_duration=14.0)
-        self.assertIn("concat=n=4:v=1:a=0", short_graph)
+        self.assertIn("concat=n=5:v=1:a=0", short_graph)
 
         long_graph = self._run_renderer_fixture({
             0.0: self._metrics(18.0, True),
             4.0: self._metrics(16.0, True),
         }, audio_duration=58.5)
-        self.assertIn("concat=n=17:v=1:a=0", long_graph)
+        self.assertIn("concat=n=20:v=1:a=0", long_graph)
         self.assertIn("duration=0.35", long_graph)
         self.assertIn("sidechaincompress=", long_graph)
         self.assertIn("acrossfade=d=0.35", long_graph)
