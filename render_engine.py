@@ -1,4 +1,4 @@
-import os, re, random, subprocess, asyncio
+import os, re, random, subprocess, asyncio, tempfile, math
 import edge_tts
 
 NEURAL_VOICES = ["en-US-AndrewMultilingualNeural"]
@@ -14,8 +14,8 @@ PALETTE_BGR = [
 ]
 
 
-async def _tts_async(text, out_mp3, voice):
-    comm = edge_tts.Communicate(text, voice, rate="-4%", pitch="-1Hz")
+async def _tts_async(text, out_mp3, voice, rate="+10%", pitch="0Hz"):
+    comm = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
     audio_parts, word_boundaries = [], []
     async for chunk in comm.stream():
         if chunk.get("type") == "audio":
@@ -28,35 +28,94 @@ async def _tts_async(text, out_mp3, voice):
             })
     if not audio_parts:
         raise RuntimeError("Edge TTS returned no audio data")
-    with open(out_mp3, "wb") as f:
+    with open(out_mp3, "wb") as audio_file:
         for part in audio_parts:
-            f.write(part)
+            audio_file.write(part)
     return word_boundaries
 
 
+def _probe_audio_duration(path):
+    return float(subprocess.check_output([
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", path
+    ], text=True, timeout=60).strip())
+
+
+def _prosody_settings():
+    """Return restrained per-sentence Edge-TTS prosody variation."""
+    return f"+{random.randint(7, 15)}%", f"{random.randint(-2, 2):+d}Hz"
+
+
 def synthesize_human_voice(script_text, out_mp3="/tmp/voice.mp3"):
-    clean = re.sub(r"[#*_~\[\]()]", "", script_text).strip()
+    clean = re.sub(r"[#*_~\[\]()]","", script_text).strip()
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", clean) if part.strip()]
+    if not sentences:
+        raise ValueError("Cannot synthesize an empty narration script")
+
     voice = "en-US-AndrewMultilingualNeural"
     try:
-        boundaries = asyncio.run(_tts_async(clean, out_mp3, voice))
+        with tempfile.TemporaryDirectory(prefix="edge_tts_sentences_") as workdir:
+            sentence_paths, word_boundaries = [], []
+            timeline_offset = 0.0
+            for index, sentence in enumerate(sentences):
+                raw_path = os.path.join(workdir, f"sentence_{index:03d}_raw.mp3")
+                trimmed_path = os.path.join(workdir, f"sentence_{index:03d}.mp3")
+                rate, pitch = _prosody_settings()
+                sentence_boundaries = asyncio.run(_tts_async(
+                    sentence, raw_path, voice, rate=rate, pitch=pitch
+                ))
+                # Preserve a short natural tail while trimming long sentence-end
+                # pauses. The same filter is applied once more to the joined track.
+                subprocess.run([
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", raw_path, "-af",
+                    "silenceremove=stop_periods=1:stop_duration=0.10:"
+                    "stop_threshold=-45dB:stop_silence=0.10",
+                    "-c:a", "libmp3lame", "-q:a", "3", trimmed_path
+                ], check=True, timeout=90)
+                sentence_duration = _probe_audio_duration(trimmed_path)
+                for boundary in sentence_boundaries:
+                    word_boundaries.append({
+                        "text": boundary.get("text", ""),
+                        "start": timeline_offset + float(boundary.get("start", 0)),
+                        "duration": float(boundary.get("duration", 0)),
+                    })
+                timeline_offset += sentence_duration
+                sentence_paths.append(trimmed_path)
+
+            concat_path = os.path.join(workdir, "sentences.txt")
+            with open(concat_path, "w", encoding="utf-8") as concat_file:
+                for sentence_path in sentence_paths:
+                    concat_file.write(f"file '{sentence_path}'\n")
+            subprocess.run([
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "concat", "-safe", "0", "-i", concat_path,
+                "-af",
+                "silenceremove=stop_periods=1:stop_duration=0.10:"
+                "stop_threshold=-45dB:stop_silence=0.10",
+                "-c:a", "libmp3lame", "-q:a", "3", out_mp3
+            ], check=True, timeout=180)
     except Exception as exc:
-        print(f"TTS voice {voice} failed; using Christopher fallback: {exc}")
+        print(f"TTS voice {voice} failed; using Christopher fallback: {type(exc).__name__}: {exc}", flush=True)
         voice = "en-US-ChristopherNeural"
-        boundaries = asyncio.run(_tts_async(clean, out_mp3, voice))
-    dur = float(subprocess.check_output([
-        "ffprobe", "-v", "error", "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1", out_mp3
-    ], text=True, timeout=60).strip())
+        # A single fallback request is safer than silently returning a partial
+        # multi-sentence file; the renderer still receives word timestamps.
+        fallback_boundaries = asyncio.run(_tts_async(
+            clean, out_mp3, voice, rate="+10%", pitch="0Hz"
+        ))
+        word_boundaries = fallback_boundaries
+
+    dur = _probe_audio_duration(out_mp3)
     if not (0.5 < dur < 180):
         raise RuntimeError(f"Generated voice duration is invalid: {dur}")
-    return out_mp3, dur, voice, boundaries
+    return out_mp3, dur, voice, word_boundaries
 
 
 def build_clean_ass_captions(script_text, audio_dur, out_ass="/tmp/captions.ass", word_boundaries=None):
     words = re.findall(r"\S+", re.sub(r"[#*_~\[\]()]", "", script_text).strip())
     if not words:
         raise ValueError("Cannot create captions for an empty narration script")
-    chunks = [words[i:i + 3] for i in range(0, len(words), 3)]
+    chunks = [words[i:i + 2] for i in range(0, len(words), 2)]
 
     valid_boundaries = bool(word_boundaries) and len(word_boundaries) >= len(words)
     if valid_boundaries:
@@ -78,7 +137,7 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: PopCap,DejaVu Sans,72,&H00FFFFFF&,&H000000FF&,&H00000000&,&H80000000&,-1,0,0,0,100,100,0,0,1,5,1,5,70,70,0,1
+Style: PopCap,DejaVu Sans,76,&H00FFFFFF&,&H000000FF&,&H00000000&,&H80000000&,-1,0,0,0,100,100,0,0,1,6,1,5,70,70,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -92,11 +151,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     events, last_color = [], None
     for idx, chunk in enumerate(chunks):
-        first = idx * 3
+        first = idx * 2
         last = min(len(words) - 1, first + len(chunk) - 1)
         start, end = starts[first], ends[last]
         if idx + 1 < len(chunks):
-            end = max(start + 0.12, min(end, starts[(idx + 1) * 3] - 0.015))
+            end = max(start + 0.12, min(end, starts[(idx + 1) * 2] - 0.015))
         else:
             end = max(end, min(audio_dur + 0.2, end + 0.2))
         if end <= start:
@@ -114,13 +173,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 "launch", "launches", "impact", "smashes", "destroyed", "flips",
                 "flies", "flying", "falls", "escape", "escaped", "record"
             }
-            color_tag = r"{\c&H0000E6FF&}" if power_word else r"{\c&H00FFFFFF&}"
+            color_tag = r"{\c&H0000FFFF&}" if power_word else r"{\c&H00FFFFFF&}"
             phrase_parts.append(color_tag + word.upper())
         phrase = " ".join(phrase_parts)
         caption = (
             r"{\an5\pos(540,1050)" +
             r"\fscx86\fscy86\t(0,90,\fscx100\fscy100)" +
-            r"\bord5\shad1\fs72}" + phrase
+            r"\bord6\shad1\fs76}" + phrase
         )
         events.append(f"Dialogue: 0,{fmt_ts(start)},{fmt_ts(end)},PopCap,,0,0,0,,{caption}")
 
@@ -168,10 +227,11 @@ def _score_motion_windows(src_video, source_dur, segment_dur, step=1.0):
         start += step
     candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
     selected = [candidates[0][2]] if candidates else [0.0]
+    max_candidates = max(12, min(36, int(source_dur / max(segment_dur * 0.85, 0.5))))
     for _, _, candidate in candidates[1:]:
         if all(abs(candidate - chosen) >= segment_dur * 0.85 for chosen in selected):
             selected.append(candidate)
-        if len(selected) >= 12:
+        if len(selected) >= max_candidates:
             break
     return selected
 
@@ -267,31 +327,22 @@ def _visual_window_score(metrics):
 
 
 def select_opening_window(src_video, ranked_starts, duration, label="visual-gate"):
-    """Prefer the best strict hook; otherwise always return the best measurable window."""
-    best_any = None
-    best_strict = None
-    for candidate in ranked_starts:
+    """Use the top brightness/contrast/motion-ranked window; never fail a hook-quality gate."""
+    fallback = float(ranked_starts[0]) if ranked_starts else 0.0
+    for rank, candidate in enumerate(ranked_starts):
         try:
             metrics = _opening_window_metrics(src_video, candidate, duration)
         except Exception as exc:
-            print(f"[{label}] Could not inspect opening at {candidate:.2f}s: {exc}", flush=True)
+            print(f"[{label}] Could not inspect ranked opening #{rank + 1} at {candidate:.2f}s: {exc}", flush=True)
             continue
-        score = _visual_window_score(metrics)
-        entry = (score, float(candidate), metrics)
-        if best_any is None or score > best_any[0]:
-            best_any = entry
-        if metrics.get("accepted") and (best_strict is None or score > best_strict[0]):
-            best_strict = entry
-    chosen = best_strict or best_any
-    if chosen:
-        _, start, metrics = chosen
-        if best_strict:
-            print(f"[{label}] STRICT BEST: selected highest-scoring bright/high-motion opening at {start:.2f}s: {metrics}", flush=True)
+        if rank == 0 and metrics.get("accepted"):
+            print(f"[{label}] TOP-RANKED STRICT OPENING: {candidate:.2f}s: {metrics}", flush=True)
+        elif rank == 0:
+            print(f"[{label}] TOP-RANKED BEST-AVAILABLE FALLBACK: {candidate:.2f}s; strict thresholds not met, continuing without rejection: {metrics}", flush=True)
         else:
-            print(f"[{label}] BEST-AVAILABLE FALLBACK: no strict candidate; selected highest brightness+contrast+motion score at {start:.2f}s: {metrics}", flush=True)
-        return start, metrics
-    fallback = float(ranked_starts[0]) if ranked_starts else 0.0
-    print(f"[{label}] METRICS UNAVAILABLE: using top motion-ranked window at {fallback:.2f}s.", flush=True)
+            print(f"[{label}] First ranked window was unreadable; using next measurable ranked window #{rank + 1} at {candidate:.2f}s: {metrics}", flush=True)
+        return float(candidate), metrics
+    print(f"[{label}] METRICS UNAVAILABLE: using highest-ranked window at {fallback:.2f}s.", flush=True)
     return fallback, None
 
 
@@ -315,9 +366,9 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         raise RuntimeError(f"Narration must be 14–58.5 seconds for a YouTube Short; got {audio_dur:.2f}s.")
 
     target_dur = audio_dur
-    cut_count = max(1, int(round(target_dur / 3.5)))
+    cut_count = max(1, int(math.ceil(target_dur / 2.2)))
     segment_dur = target_dur / cut_count
-    if not (3.0 <= segment_dur <= 4.0):
+    if not (1.8 <= segment_dur <= 2.2):
         raise RuntimeError(f"Invalid duration-matched gameplay cut length: {segment_dur:.2f}s.")
 
     fitted_voice = "/tmp/voice_fitted.wav" if voice_audio_override else "/tmp/voice_fitted.mp3"
@@ -383,12 +434,14 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     for index, cut_start in enumerate(cut_starts):
         label = f"cut{index}"
         cut_labels.append(f"[{label}]")
+        frame_count = max(1, int(round(segment_dur * 30)))
+        zoom_expr = f"min(1.12,1+0.12*on/{frame_count})" if index % 2 == 1 else "1.0"
         cut_filters.append(
             f"[0:v]trim=start={cut_start:.3f}:duration={segment_dur:.3f},"
             "setpts=PTS-STARTPTS,fps=30,"
             "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,"
             "crop=1080:1920:(iw-ow)/2:(ih-oh)/2,"
-            "zoompan=z='min(1.05,1+0.05*on/105)':d=1:s=1080x1920:fps=30,"
+            f"zoompan=z='{zoom_expr}':d=1:s=1080x1920:fps=30,"
             f"setsar=1[{label}]"
         )
     concat_inputs = "".join(cut_labels)
@@ -448,8 +501,8 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         raise RuntimeError(f"Rendered duration mismatch: expected {target_dur:.2f}s, got {output_duration:.2f}s")
     print(
         f"Rendered {output_duration:.2f}s Short; {cut_count} motion-ranked "
-        f"{segment_dur:.2f}s cuts, highest-motion first, 1.00–1.05 zoom, "
-        "full-bleed 9:16, 64px yellow hook badge and 72px centered captions."
+        f"{segment_dur:.2f}s cuts at ~2.2s pacing, highest-score first, alternating 1.00–1.12 punch-ins, "
+        "full-bleed 9:16, 64px yellow hook badge and 76px 1–2 word centered captions."
     )
     return out_video
 
