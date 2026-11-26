@@ -108,6 +108,7 @@ class PipelineRegressionTests(unittest.TestCase):
                 self.assertIn("drawtext=", graph)
                 self.assertIn("zoompan=z=", graph)
                 self.assertIn("[5:a]volume=", graph)
+                self.assertIn("between(t,", graph)
                 self.assertIn("volume=-20dB[pops]", graph)
                 self.assertIn("[voicebed][hookfx][pops]amix=inputs=3", graph)
             else:

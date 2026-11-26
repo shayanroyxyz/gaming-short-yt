@@ -342,6 +342,20 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     ass_path = build_clean_ass_captions(
         script_text, target_dur, word_boundaries=fitted_boundaries
     )
+    # Match each subtle pop to the exact start of a three-word caption chunk.
+    caption_words = re.findall(r"\S+", re.sub(r"[#*_~\[\]()]", "", script_text).strip())
+    caption_lengths = [max(1, len(re.sub(r"\W", "", word))) for word in caption_words]
+    caption_total = max(1, sum(caption_lengths))
+    caption_cursor = 0
+    caption_pop_times = []
+    for word_index, word_length in enumerate(caption_lengths):
+        if word_index % 3 == 0:
+            caption_pop_times.append(target_dur * caption_cursor / caption_total)
+        caption_cursor += word_length
+    pop_expression = "+".join(
+        f"between(t,{stamp:.3f},{min(target_dur, stamp + 0.06):.3f})"
+        for stamp in caption_pop_times
+    ) or "0"
 
     source_dur = float(subprocess.check_output([
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -415,7 +429,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         "[2:a]highpass=f=700,lowpass=f=9000,afade=t=out:st=0.16:d=0.19,volume=-12dB[impact];"
         "[3:a]lowpass=f=140,afade=t=out:st=0.12:d=0.23,volume=-12dB[sub];"
         "[impact][sub]amix=inputs=2:duration=longest:normalize=0[hookfx];"
-        "[5:a]volume='if(lt(mod(t,3.5),0.06),1,0)',volume=-20dB[pops];"
+        f"[5:a]volume='min(1,{pop_expression})',volume=-20dB[pops];"
         "[voicebed][hookfx][pops]amix=inputs=3:duration=first:dropout_transition=0:normalize=0,"
         "loudnorm=I=-14:TP=-1.5:LRA=11[aout];"
         "[aout]asplit=2[abase][ahead];"
