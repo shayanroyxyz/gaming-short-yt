@@ -150,13 +150,15 @@ class PipelineRegressionTests(unittest.TestCase):
             0.0: self._metrics(18.0, True),
             4.0: self._metrics(16.0, True),
         }, audio_duration=14.0)
-        self.assertIn("concat=n=4:v=1:a=0", short_graph)
+        self.assertIn("concat=n=7:v=1:a=0", short_graph)
 
         long_graph = self._run_renderer_fixture({
             0.0: self._metrics(18.0, True),
             4.0: self._metrics(16.0, True),
         }, audio_duration=58.5)
-        self.assertIn("concat=n=17:v=1:a=0", long_graph)
+        self.assertIn("concat=n=27:v=1:a=0", long_graph)
+        self.assertIn("zoompan=z='min(1.12,1+0.12*on/", long_graph)
+        self.assertIn("zoompan=z='1.0'", long_graph)
         self.assertIn("duration=0.35", long_graph)
         self.assertIn("sidechaincompress=", long_graph)
         self.assertIn("acrossfade=d=0.35", long_graph)
@@ -191,6 +193,37 @@ class PipelineRegressionTests(unittest.TestCase):
         })
         self.assertIn("[0:v]trim=start=0.000", graph)
 
+    def test_top_ranked_window_wins_even_when_a_lower_ranked_window_passes_strict_gate(self):
+        with patch.object(render_engine, "_opening_window_metrics", side_effect=[
+            self._metrics(12.0, False, luma=72.0, contrast=35.0, saturation=22.0),
+            self._metrics(38.0, True, luma=140.0, contrast=60.0, saturation=75.0),
+        ]):
+            start, metrics = render_engine.select_opening_window(
+                "unused.mp4", [3.0, 9.0], 2.2, label="test"
+            )
+        self.assertEqual(start, 3.0)
+        self.assertFalse(metrics["accepted"])
+
+    def test_sentence_prosody_stays_inside_requested_edge_tts_ranges(self):
+        for _ in range(50):
+            rate, pitch = render_engine._prosody_settings()
+            self.assertGreaterEqual(int(rate[1:-1]), 7)
+            self.assertLessEqual(int(rate[1:-1]), 15)
+            pitch_value = int(pitch[:-2])
+            self.assertGreaterEqual(pitch_value, -2)
+            self.assertLessEqual(pitch_value, 2)
+
+    def test_script_prompt_contains_2026_fact_lock_and_human_creator_rules(self):
+        main_path = os.path.join(os.path.dirname(__file__), "..", "main.py")
+        with open(main_path, encoding="utf-8") as source_file:
+            source = source_file.read()
+        self.assertIn("2026 VERIFIED GTA VI FACT LOCK", source)
+        self.assertIn("November 19, 2026", source)
+        self.assertIn("have not announced", source)
+        self.assertIn("BANNED CLICHES", source)
+        self.assertIn("contractions", source)
+        self.assertIn("FINAL FIVE WORDS", source)
+
     def test_visual_score_prefers_brightness_contrast_motion_balance(self):
         bright = self._metrics(10.0, False, luma=200.0, contrast=80.0, saturation=18.0)
         dark_fast = self._metrics(45.0, False, luma=60.0, contrast=50.0, saturation=12.0)
@@ -199,7 +232,7 @@ class PipelineRegressionTests(unittest.TestCase):
             render_engine._visual_window_score(dark_fast),
         )
 
-    def test_caption_chunks_use_72px_centered_word_boundaries(self):
+    def test_caption_chunks_use_76px_centered_one_to_two_word_boundaries(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "captions.ass")
             script = "One two three four five six seven eight"
@@ -211,11 +244,14 @@ class PipelineRegressionTests(unittest.TestCase):
             with open(path, encoding="utf-8") as caption_file:
                 content = caption_file.read()
 
-            self.assertIn("Style: PopCap,DejaVu Sans,72,", content)
+            self.assertIn("Style: PopCap,DejaVu Sans,76,", content)
             self.assertIn(",70,70,0,1", content)
+            self.assertIn(r"\\bord6", content)
+            self.assertIn("ONE TWO", content)
+            self.assertIn("THREE FOUR", content)
             self.assertIn(r"\an5\pos(540,1050)", content)
             self.assertIn(r"\fscx100", content)
-            self.assertIn("Dialogue: 0,0:00:00.00,0:00:00.80", content)
+            self.assertIn("Dialogue: 0,0:00:00.00,0:00:00.50", content)
             self.assertNotIn(r"\N", content)
 
 
