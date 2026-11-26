@@ -205,7 +205,7 @@ def _frame_quality_metrics(src_video, timestamp):
 
 
 
-def _opening_window_metrics(src_video, start, duration=3.5, fps=2):
+def _opening_window_metrics(src_video, start, duration=3.5, fps=8):
     """Measure brightness, color saturation, contrast and frame-to-frame action."""
     width, height = 160, 90
     frame_size = width * height * 3
@@ -365,7 +365,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     ], text=True, timeout=60).strip())
     if source_dur < segment_dur:
         raise RuntimeError("Gameplay source is shorter than one required cut.")
-    ranked_starts = _score_motion_windows(src_video, source_dur, segment_dur)
+    ranked_starts = _score_motion_windows(src_video, source_dur, segment_dur, step=0.25)
     opening_start, opening_metrics = select_opening_window(
         src_video, ranked_starts, segment_dur, label="visual-gate"
     )
