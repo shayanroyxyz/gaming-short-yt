@@ -1,7 +1,7 @@
 {
   "focus": "gta6",
-  "last_video_id": "Y5dhEhD77M0",
+  "last_video_id": "-w22nTIsv9U",
   "pending_url": "",
-  "analytics_last_attempt_at": "2026-11-24T23:29:37.564607+00:00",
-  "analytics_last_error": "HttpError: <HttpError 401 when requesting https://youtube.googleapis.com/youtube/v3/videos?part=snippet%2Cstatistics&id=93Bzr3C6hLg%2C_W1oMyMQ0Mc%2CWSRUZ5IkbDM%2CC2-icmVEB0U%2C5gqHXvHHE2I%2Cg3_Kg_kIihQ%2COq4T72Y2e-k%2Cl9bCqtpgR3U%2CVYWuYtCsBJc%2Cr-TysRj0Os0%2CzZR4mmpQopU&maxResults=50&key=AQ.Ab8RN6JEH68j3Dm1gXqPUvdkF4SkH_Is3zNk2Thk0jzetzamyw&alt=json returned \"API keys are not supported by this API. Expected OAuth2 access token or other authentication credentials that assert a principal. See https://cloud.google.com/docs/authentication\". Details: \"[{'message': 'Login Required.', 'domain': 'global', 'reason': 'required', 'location': 'Authorization', 'locationType': 'header'}]\">"
+  "analytics_last_attempt_at": "2026-11-26T00:59:37.697852+00:00",
+  "analytics_last_error": "HttpError: <HttpError 401 when requesting https://youtube.googleapis.com/youtube/v3/videos?part=snippet%2Cstatistics&id=93Bzr3C6hLg%2C_W1oMyMQ0Mc%2CWSRUZ5IkbDM%2CC2-icmVEB0U%2C5gqHXvHHE2I%2Cg3_Kg_kIihQ%2COq4T72Y2e-k%2Cl9bCqtpgR3U%2CVYWuYtCsBJc%2Cr-TysRj0Os0%2CzZR4mmpQopU%2CBp-PXdt24Q4%2CbsDaC_eSgR8%2CELrvCfbbzd8%2CUsrf1JxRTss%2C0c69nYEjwUE%2CY5dhEhD77M0&maxResults=50&key=AQ.Ab8RN6JEH68j3Dm1gXqPUvdkF4SkH_Is3zNk2Thk0jzetzamyw&alt=json returned \"API keys are not supported by this API. Expected OAuth2 access token or other authentication credentials that assert a principal. See https://cloud.google.com/docs/authentication\". Details: \"[{'message': 'Login Required.', 'domain': 'global', 'reason': 'required', 'location': 'Authorization', 'locationType': 'header'}]\">"
 }

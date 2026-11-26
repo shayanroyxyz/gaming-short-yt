@@ -16,7 +16,8 @@
     "GTA 6 PC Delay",
     "Physics Engine Breaks",
     "GTA 6 Engine Chaos",
-    "Rockstar Kills Unofficial Port"
+    "Rockstar Kills Unofficial Port",
+    "GTA 6 Code Leaked"
   ],
   "recent_scripts": [
     {
@@ -88,6 +89,11 @@
       "source": "[GTA6]_Clip_339.mp4",
       "script": "Rockstar just nuked the unofficial GTA Six PC port. You thought waiting was boring? The community proved the engine runs on consumer hardware, but the publisher shut it down instantly. It is the ultimate power move. While hackers fight for access, we are stuck navigating Los Santos in GTA Five. The physics here still hold up, but the hype is breaking the internet. Is the delay worth it for better graphics? Or are we already missing this classic world? Drop your theory below before the next update drops, because Rockstar just nuked the unofficial GTA Six PC port.",
       "created_at": "2026-11-25T23:07:16.196368+00:00"
+    },
+    {
+      "source": "[GTA6]_Clip_316.mp4",
+      "script": "Rockstar deleted the PC port in hours. The community cracked the engine, but the publisher pulled the plug instantly. It is the ultimate power move. While hackers fight for access, we are stuck navigating Los Santos in GTA Five. The physics here still hold up, but the hype is breaking the internet. Is the delay worth it for better graphics? Or are we already missing this classic world? Drop your theory below before the next update drops, because Rockstar just nuked the unofficial GTA Six PC port.",
+      "created_at": "2026-11-26T01:00:43.520432+00:00"
     }
   ],
   "recent_creative_entries": [
@@ -138,6 +144,14 @@
       "created_at": "2026-11-25T23:07:16.196354+00:00",
       "video_id": "Y5dhEhD77M0",
       "source_key": "pcloud:[GTA6]_Clip_339.mp4"
+    },
+    {
+      "title": "Rockstar Deletes GTA 6 PC Port",
+      "hook": "GTA 6 Code Leaked",
+      "angle": "story_fact",
+      "created_at": "2026-11-26T01:00:43.520412+00:00",
+      "video_id": "-w22nTIsv9U",
+      "source_key": "pcloud:[GTA6]_Clip_316.mp4"
     }
   ],
   "used_sources": [
@@ -157,7 +171,8 @@
     "pcloud:[GTA6]_Clip_339.mp4@675s",
     "pcloud:[GTA6]_Clip_339.mp4@585s",
     "pcloud:[GTA6]_Clip_339.mp4@455s",
-    "pcloud:[GTA6]_Clip_339.mp4@1235s"
+    "pcloud:[GTA6]_Clip_339.mp4@1235s",
+    "pcloud:[GTA6]_Clip_316.mp4@715s"
   ],
   "uploaded_source_windows": [
     {
@@ -311,6 +326,15 @@
       "video_id": "Y5dhEhD77M0",
       "privacy_status": "public",
       "uploaded_at": "2026-11-25T23:08:57.037297+00:00"
+    },
+    {
+      "hash": "119e691feb6ba27a49259174c985ff0784627b9a2c683953d3342ff6834679bf",
+      "source": "pcloud:[GTA6]_Clip_316.mp4",
+      "start_second": 715.0,
+      "duration": 65.0,
+      "video_id": "-w22nTIsv9U",
+      "privacy_status": "public",
+      "uploaded_at": "2026-11-26T01:01:40.268919+00:00"
     }
   ],
   "used_source_windows": [
@@ -383,6 +407,13 @@
       "duration": 65.0,
       "hash": "65eb2d9a9a8658d2a338bc755cf52b0e44c44857e54e416d2a7b45f944bb6320",
       "video_id": "Y5dhEhD77M0"
+    },
+    {
+      "source": "pcloud:[GTA6]_Clip_316.mp4",
+      "start_second": 715.0,
+      "duration": 65.0,
+      "hash": "119e691feb6ba27a49259174c985ff0784627b9a2c683953d3342ff6834679bf",
+      "video_id": "-w22nTIsv9U"
     }
   ],
   "published_source_files": [
