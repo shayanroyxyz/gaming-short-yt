@@ -277,7 +277,7 @@ class PipelineRegressionTests(unittest.TestCase):
             self.assertIn(r"\bord6", content)
             self.assertIn("ONE TWO", content)
             self.assertIn("THREE FOUR", content)
-            self.assertIn(r"\\c&H0000FFFF&", content)
+            self.assertIn(r"\c&H0000FFFF&", content)
             self.assertIn(r"\an5\pos(540,1050)", content)
             self.assertIn(r"\fscx100", content)
             self.assertIn("Dialogue: 0,0:00:00.00,0:00:00.50", content)
