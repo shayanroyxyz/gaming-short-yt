@@ -1064,6 +1064,10 @@ if __name__ == "__main__":
             )
         uploaded_video_id = publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist, source_hash, source_key, start_second, source_duration)
         cfg["series_counter"] = series_number + 1
+        # Persist immediately after confirmed publication so a later reporting
+        # or history-write failure cannot reuse an already-published episode ID.
+        with open("config.json", "w", encoding="utf-8") as config_file:
+            json.dump(cfg, config_file, indent=2)
         if hist.get("recent_creative_entries"):
             hist["recent_creative_entries"][-1]["video_id"] = uploaded_video_id
             hist["recent_creative_entries"][-1]["source_key"] = source_key
