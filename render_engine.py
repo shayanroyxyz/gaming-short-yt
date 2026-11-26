@@ -243,6 +243,7 @@ def _opening_window_metrics(src_video, start, duration=3.5, fps=2):
         "saturation": round(sum(saturations) / len(saturations), 2),
         "contrast": round(sum(contrasts) / len(contrasts), 2),
         "motion": round(sum(motion) / max(1, len(motion)), 2),
+        "peak_motion": round(max(motion) if motion else 0.0, 2),
     }
     # Keep the non-motion quality floor identical for strict and fallback
     # selection. Motion is evaluated separately so fallback cannot admit dark,
@@ -261,7 +262,8 @@ def _visual_window_score(metrics):
     return (
         0.30 * clamp(metrics.get("mean_luma", 0) / 255.0)
         + 0.25 * clamp(metrics.get("contrast", 0) / 128.0)
-        + 0.35 * clamp(metrics.get("motion", 0) / 64.0)
+        + 0.15 * clamp(metrics.get("motion", 0) / 64.0)
+        + 0.30 * clamp(metrics.get("peak_motion", metrics.get("motion", 0)) / 90.0)
         + 0.10 * clamp(metrics.get("saturation", 0) / 255.0)
     )
 
@@ -315,9 +317,9 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         raise RuntimeError(f"Narration must be 14–58.5 seconds for a YouTube Short; got {audio_dur:.2f}s.")
 
     target_dur = audio_dur
-    cut_count = max(1, int(round(target_dur / 3.5)))
+    cut_count = max(1, int(round(target_dur / 3.0)))
     segment_dur = target_dur / cut_count
-    if not (3.0 <= segment_dur <= 4.0):
+    if not (2.8 <= segment_dur <= 3.2):
         raise RuntimeError(f"Invalid duration-matched gameplay cut length: {segment_dur:.2f}s.")
 
     fitted_voice = "/tmp/voice_fitted.wav" if voice_audio_override else "/tmp/voice_fitted.mp3"
@@ -404,7 +406,14 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
             "setpts=PTS-STARTPTS,fps=30,"
             "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,"
             "crop=1080:1920:(iw-ow)/2:(ih-oh)/2,"
-            "zoompan=z='if(lt(mod(on,105),6),1+0.12*mod(on,105)/6,if(lt(mod(on,105),12),1.12-0.12*(mod(on,105)-6)/6,1))':d=1:s=1080x1920:fps=30,"
+            + (
+                "zoompan=z='if(lt(on,8),1.08-0.01*on,if(lt(mod(on,90),6),1+0.10*mod(on,90)/6,if(lt(mod(on,90),12),1.10-0.10*(mod(on,90)-6)/6,1)))':"
+                "x='iw/2-(iw/zoom/2)+1.6*sin(on/19)':y='ih/2-(ih/zoom/2)+1.2*sin(on/23)':d=1:s=1080x1920:fps=30,"
+                "eq=contrast=1.07:brightness=0.01:enable='lt(t,0.25)',"
+                if index == 0 else
+                "zoompan=z='if(lt(mod(on,90),6),1+0.10*mod(on,90)/6,if(lt(mod(on,90),12),1.10-0.10*(mod(on,90)-6)/6,1))':"
+                "x='iw/2-(iw/zoom/2)+1.6*sin(on/19)':y='ih/2-(ih/zoom/2)+1.2*sin(on/23)':d=1:s=1080x1920:fps=30,"
+            ) +
             f"setsar=1[{label}]"
         )
     concat_inputs = "".join(cut_labels)
@@ -466,7 +475,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         raise RuntimeError(f"Rendered duration mismatch: expected {target_dur:.2f}s, got {output_duration:.2f}s")
     print(
         f"Rendered {output_duration:.2f}s Short; {cut_count} motion-ranked "
-        f"{segment_dur:.2f}s cuts, highest-motion first, 1.00–1.12 punch zoom, "
+        f"{segment_dur:.2f}s cuts, peak-motion opening, 1.08x first-frame impact flash, "
         "full-bleed 9:16, 64px yellow hook badge and 72px centered captions."
     )
     return out_video
