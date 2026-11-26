@@ -224,6 +224,21 @@ class PipelineRegressionTests(unittest.TestCase):
         self.assertIn("contractions", source)
         self.assertIn("FINAL FIVE WORDS", source)
 
+    def test_telegram_listener_has_single_poller_and_safe_409_exit(self):
+        root = os.path.join(os.path.dirname(__file__), "..")
+        with open(os.path.join(root, ".github", "workflows", "telegram_listener.yml"), encoding="utf-8") as workflow:
+            workflow_text = workflow.read()
+        with open(os.path.join(root, "telegram_bot.py"), encoding="utf-8") as bot:
+            bot_text = bot.read()
+        with open(os.path.join(root, "render_bot.py"), encoding="utf-8") as legacy:
+            legacy_text = legacy.read()
+        self.assertIn("group: telegram-bot-poller", workflow_text)
+        self.assertIn("cancel-in-progress: true", workflow_text)
+        self.assertIn('"drop_pending_updates": "false"', bot_text)
+        self.assertIn("consecutive_409", bot_text)
+        self.assertIn("exiting cleanly", bot_text)
+        self.assertIn("RENDER_BOT_POLLING_ENABLED", legacy_text)
+
     def test_visual_score_prefers_brightness_contrast_motion_balance(self):
         bright = self._metrics(10.0, False, luma=200.0, contrast=80.0, saturation=18.0)
         dark_fast = self._metrics(45.0, False, luma=60.0, contrast=50.0, saturation=12.0)
