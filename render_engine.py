@@ -179,7 +179,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         caption = (
             r"{\an5\pos(540,1050)" +
             r"\fscx86\fscy86\t(0,90,\fscx100\fscy100)" +
-            r"\bord5\shad1\fs72}" + phrase
+            r"\bord6\shad1\fs76}" + phrase
         )
         events.append(f"Dialogue: 0,{fmt_ts(start)},{fmt_ts(end)},PopCap,,0,0,0,,{caption}")
 
