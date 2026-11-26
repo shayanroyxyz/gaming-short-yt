@@ -499,23 +499,29 @@ def stream_unique_action_clips(hist, focus):
 def _normalize_creator_script(script):
     """Replace stock AI-sounding phrases with plain spoken gamer wording."""
     replacements = (
-        (r"\bbreaking the internet\b", "blowing up online"),
-        (r"\bin today's gaming landscape\b", "in gaming right now"),
-        (r"\bwithout further ado\b", "here's the thing"),
-        (r"\bin conclusion\b", "so"),
-        (r"\bfurthermore\b", "plus"),
-        (r"\bmoreover\b", "and"),
-        (r"\bgame-changer\b", "big shift"),
-        (r"\bdelve into\b", "look at"),
-        (r"\bdelve\b", "look"),
-        (r"\bunleash\b", "show"),
-        (r"\brealm\b", "world"),
-        (r"\byou won't believe\b", "this is wild"),
+        ("breaking the internet", "blowing up online"),
+        ("in today's gaming landscape", "in gaming right now"),
+        ("without further ado", "here's the thing"),
+        ("in conclusion", "so"),
+        ("furthermore", "plus"),
+        ("moreover", "and"),
+        ("game-changer", "big shift"),
+        ("delve into", "look at"),
+        ("delve", "look"),
+        ("unleash", "show"),
+        ("realm", "world"),
+        ("you won't believe", "this is wild"),
     )
     normalized = str(script or "")
-    for pattern, replacement in replacements:
-        normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
-    return re.sub(r"\s+", " ", normalized).strip()
+    for phrase, replacement in replacements:
+        cursor = 0
+        while True:
+            match_at = normalized.casefold().find(phrase.casefold(), cursor)
+            if match_at < 0:
+                break
+            normalized = normalized[:match_at] + replacement + normalized[match_at + len(phrase):]
+            cursor = match_at + len(replacement)
+    return " ".join(normalized.split())
 
 
 def _parse_strict_ai_json(raw):
