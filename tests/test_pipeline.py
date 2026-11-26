@@ -106,9 +106,18 @@ class PipelineRegressionTests(unittest.TestCase):
                 self.assertIn("crop=1080:1920", graph)
                 self.assertNotIn("gblur=", graph)
                 self.assertIn("drawtext=", graph)
+                self.assertIn("zoompan=z=", graph)
+                self.assertIn("[5:a]volume=", graph)
+                self.assertIn("volume=-20dB[pops]", graph)
+                self.assertIn("[voicebed][hookfx][pops]amix=inputs=3", graph)
             else:
                 self.assertIn("-filter:a", cmd)
-                self.assertIn("atempo=1.0", cmd)
+                audio_filter = cmd[cmd.index("-filter:a") + 1]
+                self.assertIn("atempo=1.0", audio_filter)
+                self.assertIn("silenceremove=stop_periods=-1", audio_filter)
+                self.assertIn("stop_duration=0.12", audio_filter)
+                self.assertIn("stop_threshold=-42dB", audio_filter)
+                self.assertIn("apad=whole_dur=", audio_filter)
             return type("Result", (), {"returncode": 0})()
 
         def fake_metrics(_src, start, _duration):
