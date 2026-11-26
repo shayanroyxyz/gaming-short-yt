@@ -69,7 +69,7 @@ def synthesize_human_voice(script_text, out_mp3="/tmp/voice.mp3"):
                 subprocess.run([
                     "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
                     "-i", raw_path, "-af",
-                    "silenceremove=stop_periods=-1:stop_duration=0.25:"
+                    "silenceremove=stop_periods=1:stop_duration=0.10:"
                     "stop_threshold=-45dB:stop_silence=0.10",
                     "-c:a", "libmp3lame", "-q:a", "3", trimmed_path
                 ], check=True, timeout=90)
@@ -173,7 +173,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 "launch", "launches", "impact", "smashes", "destroyed", "flips",
                 "flies", "flying", "falls", "escape", "escaped", "record"
             }
-            color_tag = r"{\c&H0000E6FF&}" if power_word else r"{\c&H00FFFFFF&}"
+            color_tag = r"{\c&H0000FFFF&}" if power_word else r"{\c&H00FFFFFF&}"
             phrase_parts.append(color_tag + word.upper())
         phrase = " ".join(phrase_parts)
         caption = (
