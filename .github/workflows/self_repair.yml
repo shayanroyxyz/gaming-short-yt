@@ -4,6 +4,13 @@ on:
     branches: [main]
     paths:
       - 'self_heal.py'
+      - 'main.py'
+      - 'render_engine.py'
+      - 'telegram_bot.py'
+      - 'loader.py'
+      - 'analytics_tuner.py'
+      - 'requirements.txt'
+      - 'tests/**'
       - '.github/workflows/self_repair.yml'
   workflow_dispatch:
 permissions:
