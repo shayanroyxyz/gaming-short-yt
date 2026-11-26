@@ -224,6 +224,13 @@ class PipelineRegressionTests(unittest.TestCase):
         self.assertIn("contractions", source)
         self.assertIn("FINAL FIVE WORDS", source)
 
+    def test_render_audio_uses_sentence_end_silence_trim(self):
+        engine_path = os.path.join(os.path.dirname(__file__), "..", "render_engine.py")
+        with open(engine_path, encoding="utf-8") as source_file:
+            source = source_file.read()
+        self.assertGreaterEqual(source.count("silenceremove=stop_periods=1:stop_duration=0.10"), 2)
+        self.assertIn("stop_silence=0.10", source)
+
     def test_telegram_listener_has_single_poller_and_safe_409_exit(self):
         root = os.path.join(os.path.dirname(__file__), "..")
         with open(os.path.join(root, ".github", "workflows", "telegram_listener.yml"), encoding="utf-8") as workflow:
@@ -261,7 +268,7 @@ class PipelineRegressionTests(unittest.TestCase):
 
             self.assertIn("Style: PopCap,DejaVu Sans,76,", content)
             self.assertIn(",70,70,0,1", content)
-            self.assertIn(r"\\bord6", content)
+            self.assertIn(r"\bord6", content)
             self.assertIn("ONE TWO", content)
             self.assertIn("THREE FOUR", content)
             self.assertIn(r"\an5\pos(540,1050)", content)
