@@ -604,9 +604,9 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     duration = max(1.0, float(duration_text))
     frame_paths = []
     # Prefer a strict visual match, but always fall back to the best available window.
-    ranked_openings = _render_engine._score_motion_windows(local_clip, duration, 3.5)
+    ranked_openings = _render_engine._score_motion_windows(local_clip, duration, 2.2)
     first_action_start, opening_metrics = _render_engine.select_opening_window(
-        local_clip, ranked_openings, 3.5, label="visual-analysis"
+        local_clip, ranked_openings, 2.2, label="visual-analysis"
     )
     sample_times = [
         first_action_start + 0.35,
@@ -639,14 +639,25 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     winning_examples = hist.get("winning_examples") or []
     winning_examples_text = json.dumps(winning_examples[:3], ensure_ascii=False)
     hype_now = fetch_live_hype_context()
+    current_utc_date = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    fact_guardrails = (
+        "2026 VERIFIED GTA VI FACT LOCK (checked 2026-11-26): Grand Theft Auto VI launched on "
+        "November 19, 2026 for PlayStation 5 and Xbox Series X|S. Rockstar/Take-Two have not announced "
+        "a PC version or PC release date as of the check date. Never claim GTA VI is already released "
+        "on PC, invent a PC date, or describe it as an upcoming unreleased game. If a PC-port rumor is "
+        "relevant, label it unconfirmed and do not present it as company news. If the current date is "
+        "later than the fact-check date, avoid making a fresh PC-status claim unless a current official "
+        "Rockstar or Take-Two source is supplied. Separate confirmed facts from rumors for every game."
+    )
     prompt = (
         "Adaptive US gaming Shorts creator: inspect all four gameplay frames in timestamp order and filename context first. "
+        f"Current UTC date: {current_utc_date}. Fact guardrails: {fact_guardrails} "
         "Choose creative_angle exactly story_fact or clip_focused. For energetic free-roam, chases, stunts, and crashes, "
         "choose story_fact: let the action hold attention while narration tells an accurate gaming story, developer detail, "
         "or surprising fact; narration need not describe driving. For a specific experiment, object, NPC behavior, glitch, "
         "physics test, secret, or Easter egg, choose clip_focused and narrate the visible setup through its exact payoff. "
         "Never invent what the frames show or make unsupported insider claims. "
-        "Write naturally between 35 and 145 spoken words, targeting a finished voiceover of 14-58.5 seconds. Use as many or as few words as the story genuinely needs: make it gripping, complete, specific, and free of fluff. Never force a fixed word count or reject a strong script just because it is 80, 96, or 120 words. The FIRST SIX WORDS must be a concrete, startling curiosity hook directly tied to the strongest visible action in the supplied frames (the same action that opens the Short). Start with the object/action/payoff itself. Never begin with filler such as In this video, Have you ever wondered, Today we, or Let me show you. Escalate quickly, deliver a clear payoff, and end on a seamless loop. "
+        "Write naturally between 35 and 145 spoken words, targeting a finished voiceover of 14.0-58.5 seconds. Use as many or as few words as the story genuinely needs; never pad or force a fixed word count. Sound like a sharp US gaming creator speaking to a friend: contractions, casual gamer vocabulary, short fragments mixed with a few longer sentences, specific observations, and natural emphasis. Avoid formal transitions and generic hype. BANNED CLICHES: delve, unleash, realm, breaking the internet, in today's gaming landscape, game-changer, without further ado, in conclusion, furthermore, moreover, 'you won't believe'. Do not use them. The FIRST SIX WORDS must be a concrete curiosity hook tied to the strongest visible action. Start with the object/action/payoff itself, never filler such as In this video, Have you ever wondered, Today we, or Let me show you. Build a clear setup, escalation, and specific payoff. The FINAL FIVE WORDS must form a grammatical bridge into the opening six words when the video loops; read the ending and opening consecutively to check the sentence flows naturally. Avoid a fake cliffhanger or repeating the hook verbatim. "
         f"Filename: {clean_name}. Focus: {focus}. Current trend context: {hype_now}. Previous angle: {previous_angle}. "
         f"Channel's measured winning examples (titles/hooks/angles; use as evidence, do not copy): {winning_examples_text}. "
         f"Recent scripts to avoid:\\n{recent_avoid}\\n"
@@ -687,7 +698,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         # Gemini has exhausted every discovered Flash/Pro model and its retries.
         # Now try every active Groq model with three attempts each, using measured
         # action timestamps as evidence; never fabricate unseen events.
-        action_windows = _render_engine._score_motion_windows(local_clip, duration, 3.5)[:5]
+        action_windows = _render_engine._score_motion_windows(local_clip, duration, 2.2)[:5]
         action_evidence = ", ".join(f"{stamp:.1f}s" for stamp in action_windows)
         fallback_prompt = (
             prompt + "\nGemini visual generation failed after model discovery and retries. "
