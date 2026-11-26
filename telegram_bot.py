@@ -155,7 +155,7 @@ while time.time()<deadline:
    else:
     label=text.replace(url,"").strip()
     if label:
-     queue(url,label,links); state.update({"pending_action":"","pending_since":0})
+     queue(url,label); state.update({"pending_action":"","pending_since":0})
      ok,detail=dispatch("load_links.yml")
      send(chat,f"Link queued. Loader dispatch: {detail}" if ok else f"Link queued; dispatch failed: {detail}")
     else:
