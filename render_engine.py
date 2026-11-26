@@ -407,7 +407,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
             "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,"
             "crop=1080:1920:(iw-ow)/2:(ih-oh)/2,"
             + (
-                "zoompan=z='if(lt(on,8),1.08-0.01*on,if(lt(mod(on,90),6),1+0.10*mod(on,90)/6,if(lt(mod(on,90),12),1.10-0.10*(mod(on,90)-6)/6,1)))':"
+                "zoompan=z='if(lt(on,8),1.08-0.01*on,if(lt(mod(on-8,90),6),1+0.10*mod(on-8,90)/6,if(lt(mod(on-8,90),12),1.10-0.10*(mod(on-8,90)-6)/6,1)))':"
                 "x='iw/2-(iw/zoom/2)+1.6*sin(on/19)':y='ih/2-(ih/zoom/2)+1.2*sin(on/23)':d=1:s=1080x1920:fps=30,"
                 "eq=contrast=1.07:brightness=0.01:enable='lt(t,0.25)',"
                 if index == 0 else
