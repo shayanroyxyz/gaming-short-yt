@@ -155,7 +155,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         last = min(len(words) - 1, first + len(chunk) - 1)
         start, end = starts[first], ends[last]
         if idx + 1 < len(chunks):
-            end = max(start + 0.12, min(end, starts[(idx + 1) * 3] - 0.015))
+            end = max(start + 0.12, min(end, starts[(idx + 1) * 2] - 0.015))
         else:
             end = max(end, min(audio_dur + 0.2, end + 0.2))
         if end <= start:
