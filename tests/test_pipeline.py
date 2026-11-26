@@ -219,6 +219,16 @@ class PipelineRegressionTests(unittest.TestCase):
             self.assertGreaterEqual(pitch_value, -2)
             self.assertLessEqual(pitch_value, 2)
 
+    def test_script_normalizer_removes_banned_ai_cliches(self):
+        cleaned = main._normalize_creator_script(
+            "Delve into this realm, unleash the game-changer, breaking the internet."
+        )
+        lowered = cleaned.lower()
+        for banned in ("delve", "realm", "unleash", "game-changer", "breaking the internet"):
+            self.assertNotIn(banned, lowered)
+        self.assertIn("look at", lowered)
+        self.assertIn("world", lowered)
+
     def test_script_prompt_contains_2026_fact_lock_and_human_creator_rules(self):
         main_path = os.path.join(os.path.dirname(__file__), "..", "main.py")
         with open(main_path, encoding="utf-8") as source_file:
