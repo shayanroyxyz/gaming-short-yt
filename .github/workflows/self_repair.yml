@@ -1,5 +1,10 @@
 name: Self Repair Doctor
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'self_heal.py'
+      - '.github/workflows/self_repair.yml'
   workflow_dispatch:
 permissions:
   contents: write

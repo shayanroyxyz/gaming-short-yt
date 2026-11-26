@@ -43,7 +43,7 @@ jobs:
           build("youtube","v3",credentials=c,cache_discovery=False).videos().delete(id=vid).execute()
           cfg["last_deleted_video_id"]=vid
           cfg["last_video_id"]=""
-          p.write_text(json.dumps(cfg,indent=2)+"\\n")
+          p.write_text(json.dumps(cfg,indent=2)+"\n")
           print("YouTube accepted deletion of the last recorded Short.")
           PY
       - name: Persist deletion state
