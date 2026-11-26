@@ -466,7 +466,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         raise RuntimeError(f"Rendered duration mismatch: expected {target_dur:.2f}s, got {output_duration:.2f}s")
     print(
         f"Rendered {output_duration:.2f}s Short; {cut_count} motion-ranked "
-        f"{segment_dur:.2f}s cuts, highest-motion first, 1.00–1.05 zoom, "
+        f"{segment_dur:.2f}s cuts, highest-motion first, 1.00–1.12 punch zoom, "
         "full-bleed 9:16, 64px yellow hook badge and 72px centered captions."
     )
     return out_video
