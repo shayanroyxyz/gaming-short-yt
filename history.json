@@ -17,7 +17,8 @@
     "Physics Engine Breaks",
     "GTA 6 Engine Chaos",
     "Rockstar Kills Unofficial Port",
-    "GTA 6 Code Leaked"
+    "GTA 6 Code Leaked",
+    "GTA 6 Motion Leaked"
   ],
   "recent_scripts": [
     {
@@ -94,6 +95,11 @@
       "source": "[GTA6]_Clip_316.mp4",
       "script": "Rockstar deleted the PC port in hours. The community cracked the engine, but the publisher pulled the plug instantly. It is the ultimate power move. While hackers fight for access, we are stuck navigating Los Santos in GTA Five. The physics here still hold up, but the hype is breaking the internet. Is the delay worth it for better graphics? Or are we already missing this classic world? Drop your theory below before the next update drops, because Rockstar just nuked the unofficial GTA Six PC port.",
       "created_at": "2026-11-26T01:00:43.520432+00:00"
+    },
+    {
+      "source": "[GTA6]_Clip_316.mp4",
+      "script": "GTA 6 motion data is already breaking the internet. We see high-motion windows at 36 seconds, 5 seconds, and 57 seconds. This raw movement data suggests the new physics engine handles chaotic stunts with unprecedented fluidity. While Chapter 1 is too good to finish, this technical foundation proves why the wait is painful. The engine isn't just rendering graphics; it is simulating real-world inertia and collision in real-time. That is why players fear the hype will make the actual release feel like a letdown. It is the most anticipated physics update in a decade. The motion is too smooth to ignore. GTA 6 motion data is already breaking the internet.",
+      "created_at": "2026-11-26T02:53:53.799367+00:00"
     }
   ],
   "recent_creative_entries": [
@@ -152,6 +158,14 @@
       "created_at": "2026-11-26T01:00:43.520412+00:00",
       "video_id": "-w22nTIsv9U",
       "source_key": "pcloud:[GTA6]_Clip_316.mp4"
+    },
+    {
+      "title": "GTA 6 Physics Data Leaked? | The Motion Proof?",
+      "hook": "GTA 6 Motion Leaked",
+      "angle": "story_fact",
+      "created_at": "2026-11-26T02:53:53.799354+00:00",
+      "video_id": "Roy5L7W9bLg",
+      "source_key": "pcloud:[GTA6]_Clip_316.mp4"
     }
   ],
   "used_sources": [
@@ -172,7 +186,8 @@
     "pcloud:[GTA6]_Clip_339.mp4@585s",
     "pcloud:[GTA6]_Clip_339.mp4@455s",
     "pcloud:[GTA6]_Clip_339.mp4@1235s",
-    "pcloud:[GTA6]_Clip_316.mp4@715s"
+    "pcloud:[GTA6]_Clip_316.mp4@715s",
+    "pcloud:[GTA6]_Clip_316.mp4@1235s"
   ],
   "uploaded_source_windows": [
     {
@@ -335,6 +350,15 @@
       "video_id": "-w22nTIsv9U",
       "privacy_status": "public",
       "uploaded_at": "2026-11-26T01:01:40.268919+00:00"
+    },
+    {
+      "hash": "295e09178f502232e622374bf1b5e842e39ae4ea3a401bd4fc2908f1a610e8a9",
+      "source": "pcloud:[GTA6]_Clip_316.mp4",
+      "start_second": 1235.0,
+      "duration": 65.0,
+      "video_id": "Roy5L7W9bLg",
+      "privacy_status": "public",
+      "uploaded_at": "2026-11-26T02:55:20.233759+00:00"
     }
   ],
   "used_source_windows": [
@@ -414,6 +438,13 @@
       "duration": 65.0,
       "hash": "119e691feb6ba27a49259174c985ff0784627b9a2c683953d3342ff6834679bf",
       "video_id": "-w22nTIsv9U"
+    },
+    {
+      "source": "pcloud:[GTA6]_Clip_316.mp4",
+      "start_second": 1235.0,
+      "duration": 65.0,
+      "hash": "295e09178f502232e622374bf1b5e842e39ae4ea3a401bd4fc2908f1a610e8a9",
+      "video_id": "Roy5L7W9bLg"
     }
   ],
   "published_source_files": [
