@@ -18,7 +18,8 @@
     "GTA 6 Engine Chaos",
     "Rockstar Kills Unofficial Port",
     "GTA 6 Code Leaked",
-    "GTA 6 Motion Leaked"
+    "GTA 6 Motion Leaked",
+    "Unseen GTA 6 Speed"
   ],
   "recent_scripts": [
     {
@@ -100,6 +101,11 @@
       "source": "[GTA6]_Clip_316.mp4",
       "script": "GTA 6 motion data is already breaking the internet. We see high-motion windows at 36 seconds, 5 seconds, and 57 seconds. This raw movement data suggests the new physics engine handles chaotic stunts with unprecedented fluidity. While Chapter 1 is too good to finish, this technical foundation proves why the wait is painful. The engine isn't just rendering graphics; it is simulating real-world inertia and collision in real-time. That is why players fear the hype will make the actual release feel like a letdown. It is the most anticipated physics update in a decade. The motion is too smooth to ignore. GTA 6 motion data is already breaking the internet.",
       "created_at": "2026-11-26T02:53:53.799367+00:00"
+    },
+    {
+      "source": "[GTA6]_Clip_339.mp4",
+      "script": "GTA 6 physics data is already terrifying. Official trailers show high-motion windows at thirty-five, thirty-two, and thirty-nine seconds. These aren't cutscenes; they are raw engine stress tests. The vehicle handling suggests real-time inertia simulation that pushes beyond current console limits. While players debate if Chapter 1 is too good to finish, this technical foundation proves why the wait feels painful. The engine isn't just rendering graphics; it is calculating complex collision dynamics in real-time. That level of fluidity is rare. Is this the new standard for open-world chaos, or just a demo trick? Drop your theory below before the next update drops, because GTA 6 physics data is already terrifying.",
+      "created_at": "2026-11-26T05:08:03.981030+00:00"
     }
   ],
   "recent_creative_entries": [
@@ -166,6 +172,14 @@
       "created_at": "2026-11-26T02:53:53.799354+00:00",
       "video_id": "Roy5L7W9bLg",
       "source_key": "pcloud:[GTA6]_Clip_316.mp4"
+    },
+    {
+      "title": "GTA 6 Physics Data: Why It Breaks Engines",
+      "hook": "Unseen GTA 6 Speed",
+      "angle": "story_fact",
+      "created_at": "2026-11-26T05:08:03.981014+00:00",
+      "video_id": "6wzNNtVigos",
+      "source_key": "pcloud:[GTA6]_Clip_339.mp4"
     }
   ],
   "used_sources": [
@@ -187,7 +201,8 @@
     "pcloud:[GTA6]_Clip_339.mp4@455s",
     "pcloud:[GTA6]_Clip_339.mp4@1235s",
     "pcloud:[GTA6]_Clip_316.mp4@715s",
-    "pcloud:[GTA6]_Clip_316.mp4@1235s"
+    "pcloud:[GTA6]_Clip_316.mp4@1235s",
+    "pcloud:[GTA6]_Clip_339.mp4@325s"
   ],
   "uploaded_source_windows": [
     {
@@ -359,6 +374,15 @@
       "video_id": "Roy5L7W9bLg",
       "privacy_status": "public",
       "uploaded_at": "2026-11-26T02:55:20.233759+00:00"
+    },
+    {
+      "hash": "27b8144d07ab76430978b618f7ae8b631f361743089660ee5c34c0015963957c",
+      "source": "pcloud:[GTA6]_Clip_339.mp4",
+      "start_second": 325.0,
+      "duration": 65.0,
+      "video_id": "6wzNNtVigos",
+      "privacy_status": "public",
+      "uploaded_at": "2026-11-26T05:09:28.308729+00:00"
     }
   ],
   "used_source_windows": [
@@ -445,6 +469,13 @@
       "duration": 65.0,
       "hash": "295e09178f502232e622374bf1b5e842e39ae4ea3a401bd4fc2908f1a610e8a9",
       "video_id": "Roy5L7W9bLg"
+    },
+    {
+      "source": "pcloud:[GTA6]_Clip_339.mp4",
+      "start_second": 325.0,
+      "duration": 65.0,
+      "hash": "27b8144d07ab76430978b618f7ae8b631f361743089660ee5c34c0015963957c",
+      "video_id": "6wzNNtVigos"
     }
   ],
   "published_source_files": [
