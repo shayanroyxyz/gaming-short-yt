@@ -170,6 +170,12 @@ class PipelineRegressionTests(unittest.TestCase):
         self.assertIn("if not (14.0 <= final_duration <= 58.5):", source)
         self.assertNotIn("22–28 seconds", source)
         self.assertNotIn("22-28 seconds", source)
+        engine_path = os.path.join(os.path.dirname(__file__), "..", "render_engine.py")
+        with open(engine_path, encoding="utf-8") as engine_file:
+            engine_source = engine_file.read()
+        self.assertNotIn("22–28 seconds", engine_source)
+        self.assertNotIn("22-28 seconds", engine_source)
+        self.assertIn("14.0 <= audio_dur <= 58.5", engine_source)
 
     def test_ai_parser_accepts_natural_96_word_narration(self):
         script = " ".join(
@@ -271,6 +277,7 @@ class PipelineRegressionTests(unittest.TestCase):
             self.assertIn(r"\bord6", content)
             self.assertIn("ONE TWO", content)
             self.assertIn("THREE FOUR", content)
+            self.assertIn(r"\\c&H0000FFFF&", content)
             self.assertIn(r"\an5\pos(540,1050)", content)
             self.assertIn(r"\fscx100", content)
             self.assertIn("Dialogue: 0,0:00:00.00,0:00:00.50", content)
