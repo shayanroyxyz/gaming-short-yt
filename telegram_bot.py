@@ -145,7 +145,7 @@ while time.time()<deadline:
    cfg["focus"]=text[:80].strip(); state.update({"pending_action":"","pending_since":0})
    persist_now(); send(chat,f"Focus saved: {cfg['focus']}.")
   elif pending=="link_name" and not command:
-   queue(state.get("pending_url",""),text,links)
+   queue(state.get("pending_url",""),text)
    state.update({"pending_action":"","pending_url":"","pending_since":0}); cfg["pending_url"]=""
    ok,detail=dispatch("load_links.yml")
    send(chat,f"Link queued. Loader dispatch: {detail}" if ok else f"Link queued; dispatch failed: {detail}")
