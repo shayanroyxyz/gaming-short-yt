@@ -605,7 +605,7 @@ def _normalize_similarity_text(value):
 def _creative_similarity(left,right):
     # Ignore episode number and fixed series prefix; compare topic only.
     def topic(value):
-        return re.sub(r"^.*?#\\s*\\d+\\s*:\\s*", "", str(value or ""), count=1)
+        return re.sub(r"^.*?#\s*\d+\s*:\s*", "", str(value or ""), count=1)
     a,b=_normalize_similarity_text(topic(left)),_normalize_similarity_text(topic(right))
     if not a or not b: return 0.0
     seq=SequenceMatcher(None,a,b,autojunk=False).ratio()
@@ -1044,7 +1044,7 @@ if __name__ == "__main__":
         if focus_label.lower() in ("", "auto"):
             series_label = "Gaming Myth"
         else:
-            series_label = re.sub(r"\\s+", " ", focus_label.upper().replace("GTA6", "GTA 6").replace("GTA5", "GTA 5")).title() + " Myth"
+            series_label = re.sub(r"\s+", " ", focus_label.upper().replace("GTA6", "GTA 6").replace("GTA5", "GTA 5")).title().replace("Gta 6", "GTA 6").replace("Gta 5", "GTA 5") + " Myth"
         title = f"{series_label} #{series_number}: {title}"[:100].rstrip()
         top_hook = f"{series_label} #{series_number}: {top_hook}"[:100]
         if hist.get("recent_creative_entries"):
