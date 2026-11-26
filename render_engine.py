@@ -91,7 +91,7 @@ def synthesize_human_voice(script_text, out_mp3="/tmp/voice.mp3"):
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
                 "-f", "concat", "-safe", "0", "-i", concat_path,
                 "-af",
-                "silenceremove=stop_periods=-1:stop_duration=0.25:"
+                "silenceremove=stop_periods=1:stop_duration=0.10:"
                 "stop_threshold=-45dB:stop_silence=0.10",
                 "-c:a", "libmp3lame", "-q:a", "3", out_mp3
             ], check=True, timeout=180)
