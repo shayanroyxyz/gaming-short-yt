@@ -47,8 +47,8 @@ def _prosody_settings():
 
 
 def synthesize_human_voice(script_text, out_mp3="/tmp/voice.mp3"):
-    clean = re.sub(r"[#*_~\\[\\]()]","", script_text).strip()
-    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\\s+", clean) if part.strip()]
+    clean = re.sub(r"[#*_~\[\]()]","", script_text).strip()
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", clean) if part.strip()]
     if not sentences:
         raise ValueError("Cannot synthesize an empty narration script")
 
@@ -86,7 +86,7 @@ def synthesize_human_voice(script_text, out_mp3="/tmp/voice.mp3"):
             concat_path = os.path.join(workdir, "sentences.txt")
             with open(concat_path, "w", encoding="utf-8") as concat_file:
                 for sentence_path in sentence_paths:
-                    concat_file.write(f"file '{sentence_path}'\\n")
+                    concat_file.write(f"file '{sentence_path}'\n")
             subprocess.run([
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
                 "-f", "concat", "-safe", "0", "-i", concat_path,
