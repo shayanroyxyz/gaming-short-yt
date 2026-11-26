@@ -640,7 +640,7 @@ def fetch_current_gaming_headlines():
 
 def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     """Use sampled frames from the actual source clip; fail closed if visual analysis is unavailable."""
-    gem_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    gem_key = os.environ.get("GEMINI_API_KEY", "").strip() if _provider_enabled("gemini") else ""
     duration_text = subprocess.check_output(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
          "-of", "default=noprint_wrappers=1:nokey=1", local_clip],
