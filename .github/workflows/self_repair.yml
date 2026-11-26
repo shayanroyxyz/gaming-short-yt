@@ -41,6 +41,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: python self_heal.py
       - name: Compile all production Python modules
         run: python -m py_compile main.py render_engine.py telegram_bot.py self_heal.py loader.py analytics_tuner.py
