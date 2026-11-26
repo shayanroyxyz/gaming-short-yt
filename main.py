@@ -570,29 +570,6 @@ def _generate_text_fallback(prompt, provider):
                 break
         if response is None:
             return None
-    elif provider == "github_models":
-        key = os.environ.get("GITHUB_TOKEN", "").strip() or os.environ.get("GH_PAT", "").strip()
-        if not key:
-            return None
-        response = None
-        for model in ("openai/gpt-4.1-mini", "meta/llama-4-scout-17b-16e-instruct"):
-            try:
-                candidate = requests.post(
-                    "https://models.github.ai/inference/chat/completions",
-                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                    json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.8},
-                    timeout=45
-                )
-                if candidate.status_code == 200:
-                    response = candidate
-                    break
-                print(f"GitHub Models {model} HTTP {candidate.status_code}: {candidate.text[:120]}", flush=True)
-                if candidate.status_code in (401, 403):
-                    break
-            except requests.RequestException as exc:
-                print(f"GitHub Models request failed: {type(exc).__name__}: {exc}", flush=True)
-        if response is None:
-            return None
     elif provider == "openrouter":
         key = os.environ.get("OPENROUTER_API_KEY", "").strip() if _provider_enabled("openrouter") else ""
         if not key:
@@ -770,7 +747,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
             "If a specific truthful action beat cannot be stated, do not return generic filler. "
             "Return the same strict JSON schema; keep narration naturally between 35 and 145 spoken words (14-58.5 seconds), with no fixed-length target."
         )
-        for provider in ("groq", "github_models", "openrouter"):
+        for provider in ("groq", "openrouter"):
             try:
                 fallback_raw = _generate_text_fallback(fallback_prompt, provider)
                 if not fallback_raw:
