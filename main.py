@@ -1,3 +1,4 @@
+from difflib import SequenceMatcher
 import render_engine as _render_engine
 from render_engine import render_full_bleed_short
 # Keep SDK text calls on the same discovered-model fallback path.
