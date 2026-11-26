@@ -499,23 +499,23 @@ def stream_unique_action_clips(hist, focus):
 def _normalize_creator_script(script):
     """Replace stock AI-sounding phrases with plain spoken gamer wording."""
     replacements = (
-        (r"\\bbreaking the internet\\b", "blowing up online"),
-        (r"\\bin today's gaming landscape\\b", "in gaming right now"),
-        (r"\\bwithout further ado\\b", "here's the thing"),
-        (r"\\bin conclusion\\b", "so"),
-        (r"\\bfurthermore\\b", "plus"),
-        (r"\\bmoreover\\b", "and"),
-        (r"\\bgame-changer\\b", "big shift"),
-        (r"\\bdelve into\\b", "look at"),
-        (r"\\bdelve\\b", "look"),
-        (r"\\bunleash\\b", "show"),
-        (r"\\brealm\\b", "world"),
-        (r"\\byou won't believe\\b", "this is wild"),
+        (r"\bbreaking the internet\b", "blowing up online"),
+        (r"\bin today's gaming landscape\b", "in gaming right now"),
+        (r"\bwithout further ado\b", "here's the thing"),
+        (r"\bin conclusion\b", "so"),
+        (r"\bfurthermore\b", "plus"),
+        (r"\bmoreover\b", "and"),
+        (r"\bgame-changer\b", "big shift"),
+        (r"\bdelve into\b", "look at"),
+        (r"\bdelve\b", "look"),
+        (r"\bunleash\b", "show"),
+        (r"\brealm\b", "world"),
+        (r"\byou won't believe\b", "this is wild"),
     )
     normalized = str(script or "")
     for pattern, replacement in replacements:
         normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
-    return re.sub(r"\\s+", " ", normalized).strip()
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def _parse_strict_ai_json(raw):
