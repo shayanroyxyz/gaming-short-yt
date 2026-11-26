@@ -74,7 +74,7 @@ def tune_daily_analytics(config, history):
         print(f"[analytics] Refreshed {len(ranked)} saved public video IDs; saved top {len(config['winning_examples'])}.")
         return True
     except Exception as exc:
-        safe_error = re.sub(r"([?&](?:key|access_token|token)=)[^&\\s]+", r"\\1[redacted]", str(exc), flags=re.I)
+        safe_error = re.sub(r"([?&](?:key|access_token|token)=)[^&\s]+", r"\1[redacted]", str(exc), flags=re.I)
         config["analytics_last_error"] = f"{type(exc).__name__}: {safe_error[:500]}"
         print(
             "[analytics] Read failed; preserving previous winning_examples. "

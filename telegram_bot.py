@@ -100,6 +100,11 @@ def persist():
   "links.txt":("\n".join(links)+"\n") if links else ""},
   "Telegram owner control state")
 
+def persist_now():
+ global dirty
+ persist()
+ dirty=False
+
 while time.time()<deadline:
  try:
   result=tg("getUpdates",{"offset":offset,"timeout":20},timeout=25)
@@ -111,6 +116,7 @@ while time.time()<deadline:
  if not updates: continue
  for item in updates:
   offset=int(item.get("update_id",offset))+1
+  dirty=True
   msg=item.get("message") or {}
   chat=str((msg.get("chat") or {}).get("id",""))
   if chat!=CHAT_ID: dirty=True; continue
@@ -119,7 +125,7 @@ while time.time()<deadline:
   media=msg.get("video") or msg.get("document") or msg.get("animation") or msg.get("video_note")
   if text=="❌ Cancel" or command=="/cancel":
    state.update({"pending_action":"","pending_url":"","pending_since":0}); cfg["pending_url"]=""
-   send(chat,"Cancelled. Ready."); dirty=True; continue
+   persist_now(); send(chat,"Cancelled. Ready."); continue
   if media:
    url=youtube_url(text); size=int(media.get("file_size") or 0)
    if url:
@@ -130,14 +136,14 @@ while time.time()<deadline:
     queue(f"tgmsg:{chat}:{msg['message_id']}",name)
    else:
     send(chat,"Not queued: file size is missing or exceeds the supported Telegram transfer limit."); dirty=True; continue
-   ok,detail=dispatch("load_links.yml")
+   persist_now(); ok,detail=dispatch("load_links.yml")
    send(chat,f"Queued. Loader dispatch: {detail}" if ok else f"Queued, but loader dispatch failed: {detail}")
    dirty=True; continue
   if not text: dirty=True; continue
   pending=state.get("pending_action","")
   if pending=="custom_focus" and not command:
    cfg["focus"]=text[:80].strip(); state.update({"pending_action":"","pending_since":0})
-   send(chat,f"Focus saved: {cfg['focus']}.")
+   persist_now(); send(chat,f"Focus saved: {cfg['focus']}.")
   elif pending=="link_name" and not command:
    queue(state.get("pending_url",""),text,links)
    state.update({"pending_action":"","pending_url":"","pending_since":0}); cfg["pending_url"]=""
@@ -154,22 +160,22 @@ while time.time()<deadline:
      send(chat,f"Link queued. Loader dispatch: {detail}" if ok else f"Link queued; dispatch failed: {detail}")
     else:
      state.update({"pending_action":"link_name","pending_url":url,"pending_since":time.time()})
-     cfg["pending_url"]=url; send(chat,"Link received. Send a short file name for this clip.")
+     cfg["pending_url"]=url; persist_now(); send(chat,"Link received. Send a short file name for this clip.")
   elif command in ("/start","/menu"): send(chat,"Owner control panel ready.")
   elif text=="🚀 Make Short Now" or command=="/make":
-   ok,detail=dispatch("auto_upload.yml")
+   persist_now(); ok,detail=dispatch("auto_upload.yml")
    send(chat,f"GitHub accepted the render request ({detail}); upload is not confirmed until the run finishes." if ok else f"Render dispatch failed: {detail}")
   elif text=="+ Add Video Link":
    state.update({"pending_action":"add_link","pending_since":time.time()})
-   send(chat,"Send a YouTube video link. I will ask for a file name if needed.")
+   persist_now(); send(chat,"Send a YouTube video link. I will ask for a file name if needed.")
   elif text=="🎯 Focus: AUTO" or command=="/focus_auto":
-   cfg["focus"]="auto"; send(chat,"Focus reset to AUTO.")
+   cfg["focus"]="auto"; persist_now(); send(chat,"Focus reset to AUTO.")
   elif text=="✏️ Custom Focus" or command=="/focus":
    arg=text.partition(" ")[2].strip() if command=="/focus" else ""
-   if arg: cfg["focus"]=arg[:80]; send(chat,f"Focus saved: {cfg['focus']}.")
+   if arg: cfg["focus"]=arg[:80]; persist_now(); send(chat,f"Focus saved: {cfg['focus']}.")
    else:
     state.update({"pending_action":"custom_focus","pending_since":time.time()})
-    send(chat,"Type any game or topic name, e.g. GTA 6, GTA 5, RDR2, Physics, or Easter Eggs.")
+    persist_now(); send(chat,"Type any game or topic name, e.g. GTA 6, GTA 5, RDR2, Physics, or Easter Eggs.")
   elif text=="📊 Cloud & YT Status" or command=="/status":
    entries=hist.get("recent_creative_entries",[])
    entries=[x for x in entries if isinstance(x,dict)] if isinstance(entries,list) else []
@@ -182,15 +188,14 @@ while time.time()<deadline:
     f"• Latest recorded Short: {latest.get('video_id','not recorded')}\n"
     "• Live cloud quota / Studio counters are not queried by the isolated bot.")
   elif text=="🩺 Self-Repair Now" or command=="/repair":
-   ok,detail=dispatch("self_repair.yml")
+   persist_now(); ok,detail=dispatch("self_repair.yml")
    send(chat,f"Self-repair accepted ({detail}); check its GitHub Actions run for results." if ok else f"Self-repair dispatch failed: {detail}")
   elif text=="🗑️ Delete Last" or command=="/delete_last":
-   ok,detail=dispatch("delete_last.yml")
+   persist_now(); ok,detail=dispatch("delete_last.yml")
    send(chat,f"Delete-last workflow accepted ({detail}); verify its run before assuming deletion." if ok else f"Delete-last dispatch failed: {detail}")
   elif command=="/help":
    send(chat,"Use the menu to render, queue a link, set focus, view saved status, run repair, delete the last recorded Short, or cancel.")
   else: send(chat,"I did not recognize that command. Use the menu or /help.")
-  dirty=True
 
 if dirty:
  try: persist()
