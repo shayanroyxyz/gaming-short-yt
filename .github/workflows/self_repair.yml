@@ -1,0 +1,48 @@
+name: Self Repair Doctor
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: gaming-short-self-repair
+  cancel-in-progress: false
+jobs:
+  repair:
+    if: github.repository == 'shayanroyxyz/gaming-short-yt'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: \${{ github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install free Python and FFmpeg dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Run state and provider self-repair
+        env:
+          GEMINI_API_KEY: \${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: \${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}
+        run: python self_heal.py
+      - name: Compile all production Python modules
+        run: python -m py_compile main.py render_engine.py telegram_bot.py self_heal.py loader.py analytics_tuner.py
+      - name: Run FFmpeg render self-test
+        run: python render_engine.py --self-test
+      - name: Persist repaired JSON and queue
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add config.json history.json bot_state.json links.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "Run self-repair doctor"
+            git pull --rebase --autostash origin main
+            git push origin HEAD:main
+          else
+            echo "No persisted state repairs were needed."
+          fi

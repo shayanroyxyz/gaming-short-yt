@@ -17,8 +17,13 @@ except Exception as _patch_err:
 
 
 
+def _provider_enabled(name):
+    disabled={x.strip().lower() for x in os.environ.get("AI_DISABLED_PROVIDERS","").split(",") if x.strip()}
+    return name.lower() not in disabled
+
+
 def generate_viral_script_waterfall(prompt_text):
-    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip() if _provider_enabled("groq") else ""
     if groq_key:
         for model in _discover_groq_models(groq_key):
             try:
@@ -38,7 +43,7 @@ def generate_viral_script_waterfall(prompt_text):
             except Exception as exc:
                 print(f"[AI] Groq {model}: {type(exc).__name__}: {exc}")
 
-    or_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    or_key = os.environ.get("OPENROUTER_API_KEY", "").strip() if _provider_enabled("openrouter") else ""
     if or_key:
         for model in ("qwen/qwen-2.5-72b-instruct:free", "deepseek/deepseek-chat:free",
                       "meta-llama/llama-3.3-70b-instruct:free"):
@@ -56,7 +61,7 @@ def generate_viral_script_waterfall(prompt_text):
             except Exception as exc:
                 print(f"[AI] OpenRouter {model}: {type(exc).__name__}: {exc}")
 
-    gem_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    gem_key = os.environ.get("GEMINI_API_KEY", "").strip() if _provider_enabled("gemini") else ""
     if gem_key:
         _, generated = _gemini_generate(gem_key, [{"text": prompt_text}])
         if generated:
@@ -537,7 +542,7 @@ def _parse_strict_ai_json(raw):
 def _generate_text_fallback(prompt, provider):
     """Free text-only fallback when Gemini's visual endpoint is unavailable."""
     if provider == "groq":
-        key = os.environ.get("GROQ_API_KEY", "").strip()
+        key = os.environ.get("GROQ_API_KEY", "").strip() if _provider_enabled("groq") else ""
         if not key:
             return None
         response = None
@@ -565,7 +570,7 @@ def _generate_text_fallback(prompt, provider):
         if response is None:
             return None
     elif provider == "openrouter":
-        key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+        key = os.environ.get("OPENROUTER_API_KEY", "").strip() if _provider_enabled("openrouter") else ""
         if not key:
             return None
         response = None
@@ -592,6 +597,45 @@ def _generate_text_fallback(prompt, provider):
         return None
     return response.json()["choices"][0]["message"]["content"].strip()
 
+
+def _normalize_similarity_text(value):
+    return re.sub(r"\s+"," ",re.sub(r"[^a-z0-9 ]"," ",str(value or "").lower())).strip()
+
+def _creative_similarity(left,right):
+    a,b=_normalize_similarity_text(left),_normalize_similarity_text(right)
+    if not a or not b: return 0.0
+    seq=SequenceMatcher(None,a,b,autojunk=False).ratio()
+    ta,tb=set(a.split()),set(b.split())
+    overlap=len(ta&tb)/max(1,len(ta|tb))
+    return max(seq,overlap)
+
+def _duplicate_candidate(title,script,hist):
+    for row in [x for x in hist.get("recent_creative_entries",[]) if isinstance(x,dict)][-50:]:
+        score=_creative_similarity(title,row.get("title",""))
+        if score>0.62: return f"title similarity {score:.3f} exceeds 0.62"
+    for row in [x for x in hist.get("recent_scripts",[]) if isinstance(x,dict)][-50:]:
+        score=_creative_similarity(script,row.get("script",""))
+        if score>0.65: return f"script similarity {score:.3f} exceeds 0.65"
+    return ""
+
+def fetch_current_gaming_headlines():
+    """Fetch up to three recent DuckDuckGo News results; missing results are never fabricated."""
+    headlines=[]
+    try:
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            for query in ("GTA VI Rockstar Games gaming","GTA V gaming update","gaming industry news"):
+                try:
+                    rows=ddgs.news(query,region="us-en",safesearch="moderate",timelimit="w",max_results=3)
+                    for item in rows or []:
+                        title=str(item.get("title","")).strip()
+                        url=str(item.get("url","")).strip()
+                        if title and url and all(x.get("title")!=title for x in headlines):
+                            headlines.append({"title":title,"source":str(item.get("source","")),"date":str(item.get("date","")),"url":url})
+                        if len(headlines)>=3: return headlines
+                except Exception as exc: print(f"[news] DuckDuckGo query unavailable: {type(exc).__name__}",flush=True)
+    except Exception as exc: print(f"[news] DuckDuckGo News unavailable: {type(exc).__name__}",flush=True)
+    return headlines[:3]
 
 def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     """Use sampled frames from the actual source clip; fail closed if visual analysis is unavailable."""
@@ -639,6 +683,8 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     winning_examples = hist.get("winning_examples") or []
     winning_examples_text = json.dumps(winning_examples[:3], ensure_ascii=False)
     hype_now = fetch_live_hype_context()
+    current_headlines=fetch_current_gaming_headlines()
+    headline_context=json.dumps(current_headlines,ensure_ascii=False)
     prompt = (
         "Adaptive US gaming Shorts creator: inspect all four gameplay frames in timestamp order and filename context first. "
         "Choose creative_angle exactly story_fact or clip_focused. For energetic free-roam, chases, stunts, and crashes, "
@@ -646,6 +692,9 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         "or surprising fact; narration need not describe driving. For a specific experiment, object, NPC behavior, glitch, "
         "physics test, secret, or Easter egg, choose clip_focused and narrate the visible setup through its exact payoff. "
         "Never invent what the frames show or make unsupported insider claims. "
+        "FACT CHECK: GTA VI launched on PS5 and Xbox Series X|S on November 19, 2026. Rockstar's official listing currently names those consoles only; no official PC release date is announced. Never say GTA VI has not launched on console, and never invent a deleted PC port, leak, cancellation, or release date. "
+        f"Fresh DuckDuckGo gaming headlines (use only when directly relevant and clearly attributed; do not infer beyond the source): {headline_context}. "
+        "If no credible fresh headline is available, do not invent current news; choose a clip-focused mystery grounded in the supplied frames. "
         "Write naturally between 35 and 145 spoken words, targeting a finished voiceover of 14-58.5 seconds. Use as many or as few words as the story genuinely needs: make it gripping, complete, specific, and free of fluff. Never force a fixed word count or reject a strong script just because it is 80, 96, or 120 words. The FIRST SIX WORDS must be a concrete, startling curiosity hook directly tied to the strongest visible action in the supplied frames (the same action that opens the Short). Start with the object/action/payoff itself. Never begin with filler such as In this video, Have you ever wondered, Today we, or Let me show you. Escalate quickly, deliver a clear payoff, and end on a seamless loop. "
         f"Filename: {clean_name}. Focus: {focus}. Current trend context: {hype_now}. Previous angle: {previous_angle}. "
         f"Channel's measured winning examples (titles/hooks/angles; use as evidence, do not copy): {winning_examples_text}. "
@@ -656,7 +705,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         "Return ONLY JSON keys creative_angle, hook, script, title, comment, ig_caption, tags. "
         "hook: 3-5 punchy words for the first-frame badge. title: under 70 characters, truthful, high-curiosity, "
         "grounded in the game/frames; avoid generic titles and unsupported secrets. "
-        "comment: one short natural debate/curiosity question tied to this video. No spam. "
+        "comment: one short natural debate/curiosity question tied to this video. No spam. End the spoken script with exactly this four-word closer: Subscribe for daily secrets. "
         "ig_caption short; tags array. No markdown fences."
     )
     parts = [{"text": prompt}]
@@ -720,15 +769,19 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     title = _repair_title(data["title"], "Gaming")
     hook = data["hook"].replace("'", "").replace('"', "").strip()
     script = data["script"].strip()
+    closer="Subscribe for daily secrets."
+    if not script.lower().rstrip().endswith(closer.lower()): script=script.rstrip()+" "+closer
+    duplicate_reason=_duplicate_candidate(title,script,hist)
+    if duplicate_reason: raise RuntimeError("DUPLICATE_CANDIDATE: "+duplicate_reason)
     comment = data["comment"].strip()
     angle = data["creative_angle"].strip().lower()
     creative_history = hist.setdefault("recent_creative_entries", [])
     creative_history.append({"title": title, "hook": hook, "angle": angle,
                              "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
-    hist["recent_creative_entries"] = creative_history[-30:]
+    hist["recent_creative_entries"] = creative_history[-50:]
     history = hist.setdefault("recent_scripts", [])
     history.append({"source": fname, "script": script, "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
-    hist["recent_scripts"] = history[-30:]
+    hist["recent_scripts"] = history[-50:]
     hist.setdefault("used_topics", []).append(hook)
     caption = data.get("ig_caption") or f"{title} Follow for daily gaming secrets! #gaming #shorts"
     tags = data.get("tags") or ["Gaming", "Shorts"]
@@ -739,7 +792,13 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
 def generate_viral_package(fname, hist, focus, local_clip=None):
     if not local_clip:
         raise RuntimeError("A local gameplay clip is required for visual script analysis.")
-    return analyze_clip_and_generate_package(fname, local_clip, hist, focus)
+    errors=[]
+    for attempt in range(1,4):
+        try: return analyze_clip_and_generate_package(fname,local_clip,hist,focus)
+        except RuntimeError as exc:
+            if not str(exc).startswith("DUPLICATE_CANDIDATE:"): raise
+            errors.append(str(exc)); print(f"[anti-duplicate] Rejected candidate {attempt}/3; regenerating: {exc}",flush=True)
+    raise RuntimeError("All three candidates were too similar to the last 50 entries; refusing to publish. "+errors[-1])
 
 def source_window_hash(source_filename, start_second, duration):
     canonical = f"{source_filename}|{float(start_second):.3f}|{float(duration):.3f}"
@@ -991,8 +1050,8 @@ if __name__ == "__main__":
         with open("history.json", "w", encoding="utf-8") as history_file:
             json.dump({"used_windows": hist.get("used_windows", [])[-400:],
                        "used_topics": hist.get("used_topics", [])[-100:],
-                       "recent_scripts": hist.get("recent_scripts", [])[-30:],
-                       "recent_creative_entries": hist.get("recent_creative_entries", [])[-30:],
+                       "recent_scripts": hist.get("recent_scripts", [])[-50:],
+                       "recent_creative_entries": hist.get("recent_creative_entries", [])[-50:],
                        "used_sources": hist.get("used_sources", [])[-100:],
                        "uploaded_source_windows": hist.get("uploaded_source_windows", [])[-500:],
                        "used_source_windows": hist.get("used_source_windows", [])[-500:],

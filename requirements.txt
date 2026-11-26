@@ -5,3 +5,4 @@ google-genai>=1.0
 edge-tts>=6.1
 telethon>=1.36
 yt-dlp>=2025.1
+duckduckgo-search>=8.1.1

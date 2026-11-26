@@ -15,7 +15,7 @@ PALETTE_BGR = [
 
 
 async def _tts_async(text, out_mp3, voice):
-    comm = edge_tts.Communicate(text, voice, rate="-4%", pitch="-1Hz")
+    comm = edge_tts.Communicate(text, voice, rate=random.choice(("+7%", "+9%", "+11%")), pitch="-1Hz")
     audio_parts, word_boundaries = [], []
     async for chunk in comm.stream():
         if chunk.get("type") == "audio":
@@ -329,14 +329,16 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     else:
         subprocess.run([
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", mp3_path,
-            "-t", str(target_dur), "-filter:a", "atempo=1.0",
+            "-t", str(target_dur), "-filter:a",
+            f"atempo=1.0,silenceremove=stop_periods=-1:stop_duration=0.12:stop_threshold=-42dB,apad=whole_dur={target_dur:.3f}",
             "-c:a", "libmp3lame", "-q:a", "3", fitted_voice
         ], check=True, timeout=120)
-    fitted_boundaries = [
+    # Silence removal shifts Edge-TTS timestamps; use fitted chunk timing for cleaned audio.
+    fitted_boundaries = None if not voice_audio_override else ([
         {"text": item.get("text", ""), "start": float(item.get("start", 0)),
          "duration": float(item.get("duration", 0))}
         for item in word_boundaries
-    ] if word_boundaries else None
+    ] if word_boundaries else None)
     ass_path = build_clean_ass_captions(
         script_text, target_dur, word_boundaries=fitted_boundaries
     )
@@ -388,7 +390,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
             "setpts=PTS-STARTPTS,fps=30,"
             "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,"
             "crop=1080:1920:(iw-ow)/2:(ih-oh)/2,"
-            "zoompan=z='min(1.05,1+0.05*on/105)':d=1:s=1080x1920:fps=30,"
+            "zoompan=z='if(lt(mod(on,105),6),1+0.12*mod(on,105)/6,if(lt(mod(on,105),12),1.12-0.12*(mod(on,105)-6)/6,1))':d=1:s=1080x1920:fps=30,"
             f"setsar=1[{label}]"
         )
     concat_inputs = "".join(cut_labels)
@@ -413,7 +415,8 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         "[2:a]highpass=f=700,lowpass=f=9000,afade=t=out:st=0.16:d=0.19,volume=-12dB[impact];"
         "[3:a]lowpass=f=140,afade=t=out:st=0.12:d=0.23,volume=-12dB[sub];"
         "[impact][sub]amix=inputs=2:duration=longest:normalize=0[hookfx];"
-        "[voicebed][hookfx]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,"
+        "[5:a]volume='if(lt(mod(t,3.5),0.06),1,0)',volume=-20dB[pops];"
+        "[voicebed][hookfx][pops]amix=inputs=3:duration=first:dropout_transition=0:normalize=0,"
         "loudnorm=I=-14:TP=-1.5:LRA=11[aout];"
         "[aout]asplit=2[abase][ahead];"
         "[ahead]atrim=start=0:duration=0.35,asetpts=PTS-STARTPTS[aheadtrim];"
@@ -431,6 +434,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         "-f", "lavfi", "-t", "0.35", "-i",
         "sine=frequency=85:sample_rate=44100",
         "-f", "lavfi", "-i", music_expr,
+        "-f", "lavfi", "-i", f"sine=frequency=1200:sample_rate=44100:duration={target_dur:.3f}",
         "-filter_complex", filter_graph,
         "-map", "[outv]", "-map", "[a_loop]",
         "-t", str(target_dur), "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
@@ -495,7 +499,7 @@ def run_ffmpeg_self_test():
         raise RuntimeError(f"Preflight output invalid: size={probe}, duration={duration:.3f}s")
     print(
         f"FFMPEG_PREFLIGHT_OK: {rendered}; video={probe}; duration={duration:.3f}s; "
-        "filters=zoompan,drawtext,ass,sidechaincompress,amix,acrossfade,xfade,loudnorm"
+        "filters=punch-zoom,silenceremove,transition-pops,drawtext,ass,sidechaincompress,amix,acrossfade,xfade,loudnorm"
     )
     return rendered
 

@@ -1,6 +1,7 @@
 """Daily, best-effort public YouTube analytics tuner using an API key."""
 import datetime
 import os
+import re
 
 from googleapiclient.discovery import build
 
@@ -17,8 +18,7 @@ def tune_daily_analytics(config, history):
             pass
 
     config["analytics_last_attempt_at"] = now.isoformat()
-    api_key = (os.environ.get("YOUTUBE_API_KEY", "").strip()
-               or os.environ.get("GEMINI_API_KEY", "").strip())
+    api_key = os.environ.get("YOUTUBE_API_KEY", "").strip()
     if not api_key:
         config["analytics_last_error"] = "Missing YOUTUBE_API_KEY (or fallback GEMINI_API_KEY)."
         print("[analytics] Skipped: " + config["analytics_last_error"])
@@ -74,7 +74,8 @@ def tune_daily_analytics(config, history):
         print(f"[analytics] Refreshed {len(ranked)} saved public video IDs; saved top {len(config['winning_examples'])}.")
         return True
     except Exception as exc:
-        config["analytics_last_error"] = f"{type(exc).__name__}: {exc}"
+        safe_error = re.sub(r"([?&](?:key|access_token|token)=)[^&\\s]+", r"\\1[redacted]", str(exc), flags=re.I)
+        config["analytics_last_error"] = f"{type(exc).__name__}: {safe_error[:500]}"
         print(
             "[analytics] Read failed; preserving previous winning_examples. "
             f"Check that YOUTUBE_API_KEY has YouTube Data API v3 enabled: "
