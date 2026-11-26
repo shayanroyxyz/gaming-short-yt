@@ -327,31 +327,22 @@ def _visual_window_score(metrics):
 
 
 def select_opening_window(src_video, ranked_starts, duration, label="visual-gate"):
-    """Prefer the best strict hook; otherwise always return the best measurable window."""
-    best_any = None
-    best_strict = None
-    for candidate in ranked_starts:
+    """Use the top brightness/contrast/motion-ranked window; never fail a hook-quality gate."""
+    fallback = float(ranked_starts[0]) if ranked_starts else 0.0
+    for rank, candidate in enumerate(ranked_starts):
         try:
             metrics = _opening_window_metrics(src_video, candidate, duration)
         except Exception as exc:
-            print(f"[{label}] Could not inspect opening at {candidate:.2f}s: {exc}", flush=True)
+            print(f"[{label}] Could not inspect ranked opening #{rank + 1} at {candidate:.2f}s: {exc}", flush=True)
             continue
-        score = _visual_window_score(metrics)
-        entry = (score, float(candidate), metrics)
-        if best_any is None or score > best_any[0]:
-            best_any = entry
-        if metrics.get("accepted") and (best_strict is None or score > best_strict[0]):
-            best_strict = entry
-    chosen = best_any
-    if chosen:
-        _, start, metrics = chosen
-        if metrics.get("accepted"):
-            print(f"[{label}] TOP-RANKED OPENING: selected the highest-scoring brightness/contrast/motion window at {start:.2f}s: {metrics}", flush=True)
+        if rank == 0 and metrics.get("accepted"):
+            print(f"[{label}] TOP-RANKED STRICT OPENING: {candidate:.2f}s: {metrics}", flush=True)
+        elif rank == 0:
+            print(f"[{label}] TOP-RANKED BEST-AVAILABLE FALLBACK: {candidate:.2f}s; strict thresholds not met, continuing without rejection: {metrics}", flush=True)
         else:
-            print(f"[{label}] BEST-AVAILABLE FALLBACK: strict visual thresholds were not met; selected the highest-scoring measurable window at {start:.2f}s: {metrics}", flush=True)
-        return start, metrics
-    fallback = float(ranked_starts[0]) if ranked_starts else 0.0
-    print(f"[{label}] METRICS UNAVAILABLE: using top motion-ranked window at {fallback:.2f}s.", flush=True)
+            print(f"[{label}] First ranked window was unreadable; using next measurable ranked window #{rank + 1} at {candidate:.2f}s: {metrics}", flush=True)
+        return float(candidate), metrics
+    print(f"[{label}] METRICS UNAVAILABLE: using highest-ranked window at {fallback:.2f}s.", flush=True)
     return fallback, None
 
 
