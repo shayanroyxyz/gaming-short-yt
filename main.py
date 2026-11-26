@@ -249,7 +249,7 @@ def _offline_package(fname, focus):
         "hook": f"{game} Moment",
         "script": script,
         "title": _repair_title(f"{game}: What Happens Next?", game),
-        "comment": "Which detail stood out to you?",
+        "comment": "Would you try this yourself, or would you play it safe?",
         "ig_caption": f"{game} gameplay moment. #gaming #shorts",
         "tags": ["Gaming", "Shorts", game]
     }
@@ -603,7 +603,10 @@ def _normalize_similarity_text(value):
     return re.sub(r"\s+"," ",re.sub(r"[^a-z0-9 ]"," ",str(value or "").lower())).strip()
 
 def _creative_similarity(left,right):
-    a,b=_normalize_similarity_text(left),_normalize_similarity_text(right)
+    # Ignore episode number and fixed series prefix; compare topic only.
+    def topic(value):
+        return re.sub(r"^.*?#\\s*\\d+\\s*:\\s*", "", str(value or ""), count=1)
+    a,b=_normalize_similarity_text(topic(left)),_normalize_similarity_text(topic(right))
     if not a or not b: return 0.0
     seq=SequenceMatcher(None,a,b,autojunk=False).ratio()
     ta,tb=set(a.split()),set(b.split())
@@ -696,7 +699,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         "FACT CHECK: GTA VI launched on PS5 and Xbox Series X|S on November 19, 2026. Rockstar's official listing currently names those consoles only; no official PC release date is announced. Never say GTA VI has not launched on console, and never invent a deleted PC port, leak, cancellation, or release date. "
         f"Fresh DuckDuckGo gaming headlines (use only when directly relevant and clearly attributed; do not infer beyond the source): {headline_context}. "
         "If no credible fresh headline is available, do not invent current news; choose a clip-focused mystery grounded in the supplied frames. "
-        "Write naturally between 35 and 145 spoken words, targeting a finished voiceover of 14-58.5 seconds. Use as many or as few words as the story genuinely needs: make it gripping, complete, specific, and free of fluff. Never force a fixed word count or reject a strong script just because it is 80, 96, or 120 words. The FIRST SIX WORDS must be a concrete, startling curiosity hook directly tied to the strongest visible action in the supplied frames (the same action that opens the Short). Start with the object/action/payoff itself. Never begin with filler such as In this video, Have you ever wondered, Today we, or Let me show you. Escalate quickly, deliver a clear payoff, and end on a seamless loop. "
+        "Write naturally between 35 and 145 spoken words, targeting a finished voiceover of 14-58.5 seconds. Use as many or as few words as the story genuinely needs: make it gripping, complete, specific, and free of fluff. Never force a fixed word count or reject a strong script just because it is 80, 96, or 120 words. The FIRST SIX WORDS must be a concrete, startling curiosity hook directly tied to the strongest visible action in the supplied frames (the same action that opens the Short). Start with the object/action/payoff itself. Never begin with filler such as In this video, Have you ever wondered, Today we, or Let me show you. Escalate quickly and deliver a clear payoff. End the SPOKEN SCRIPT with a short, genuine gamer debate question, not a subscribe slogan. Make the final question grammatically loop into the opening by echoing the opening's first 2-4 words at the very end. Example structure: opening 'Would you survive this jump...' and ending '...after seeing that, would you?' Avoid forced or fake controversy. "
         f"Filename: {clean_name}. Focus: {focus}. Current trend context: {hype_now}. Previous angle: {previous_angle}. "
         f"Channel's measured winning examples (titles/hooks/angles; use as evidence, do not copy): {winning_examples_text}. "
         f"Recent scripts to avoid:\\n{recent_avoid}\\n"
@@ -706,7 +709,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         "Return ONLY JSON keys creative_angle, hook, script, title, comment, ig_caption, tags. "
         "hook: 3-5 punchy words for the first-frame badge. title: under 70 characters, truthful, high-curiosity, "
         "grounded in the game/frames; avoid generic titles and unsupported secrets. "
-        "comment: one short natural debate/curiosity question tied to this video. No spam. End the spoken script with exactly this four-word closer: Subscribe for daily secrets. "
+        "comment: one short natural gamer debate question tied to this video; invite a real opinion, not spam. The spoken script must end on its debate question, never a subscribe slogan. "
         "ig_caption short; tags array. No markdown fences."
     )
     parts = [{"text": prompt}]
@@ -770,8 +773,10 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     title = _repair_title(data["title"], "Gaming")
     hook = data["hook"].replace("'", "").replace('"', "").strip()
     script = data["script"].strip()
-    closer="Subscribe for daily secrets."
-    if not script.lower().rstrip().endswith(closer.lower()): script=script.rstrip()+" "+closer
+    script=script.rstrip()
+    if not script.endswith("?"):
+        script += " After seeing that, would you?"
+    comment = data.get("comment", "").strip() or "Would you try this yourself, or play it safe?"
     duplicate_reason=_duplicate_candidate(title,script,hist)
     if duplicate_reason: raise RuntimeError("DUPLICATE_CANDIDATE: "+duplicate_reason)
     comment = data["comment"].strip()
@@ -1020,7 +1025,8 @@ def publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist
 if __name__ == "__main__":
     try:
         hist = json.load(open("history.json")) if os.path.exists("history.json") else {"used_windows": [], "used_topics": []}
-        cfg = json.load(open("config.json")) if os.path.exists("config.json") else {"focus": "auto", "last_video_id": "", "pending_url": ""}
+        cfg = json.load(open("config.json")) if os.path.exists("config.json") else {"focus": "auto", "last_video_id": "", "pending_url": "", "series_counter": 1}
+        cfg["series_counter"] = max(1, int(cfg.get("series_counter", 1) or 1))
         focus = cfg.get("focus", "auto")
         try:
             from analytics_tuner import tune_daily_analytics
@@ -1032,6 +1038,18 @@ if __name__ == "__main__":
         hist["winning_examples"] = cfg.get("winning_examples", [])
         fname, local_clip, source_hash, start_second, source_duration, source_key = stream_unique_action_clips(hist, focus)
         title, top_hook, script, first_comment, ig_caption, tags, creative_angle = generate_viral_package(fname, hist, focus, local_clip)
+        # Reserve an episode number; increment only after YouTube confirms publication.
+        series_number = max(1, int(cfg.get("series_counter", 1) or 1))
+        focus_label = str(focus or "auto").strip()
+        if focus_label.lower() in ("", "auto"):
+            series_label = "Gaming Myth"
+        else:
+            series_label = re.sub(r"\\s+", " ", focus_label.upper().replace("GTA6", "GTA 6").replace("GTA5", "GTA 5")).title() + " Myth"
+        title = f"{series_label} #{series_number}: {title}"[:100].rstrip()
+        top_hook = f"{series_label} #{series_number}: {top_hook}"[:100]
+        if hist.get("recent_creative_entries"):
+            hist["recent_creative_entries"][-1]["title"] = title
+            hist["recent_creative_entries"][-1]["series_number"] = series_number
         rendered_path = render_full_bleed_short(local_clip, script, "final.mp4", top_hook=top_hook, creative_angle=creative_angle)
         if not os.path.isfile(rendered_path) or os.path.getsize(rendered_path) < 100_000:
             raise RuntimeError("Render step returned without a valid final video.")
@@ -1045,6 +1063,7 @@ if __name__ == "__main__":
                 f"Rendered Short must be 14.0–58.5 seconds; got {final_duration:.2f}s. Refusing to publish."
             )
         uploaded_video_id = publish_everywhere(title, script, first_comment, ig_caption, tags, cfg, hist, source_hash, source_key, start_second, source_duration)
+        cfg["series_counter"] = series_number + 1
         if hist.get("recent_creative_entries"):
             hist["recent_creative_entries"][-1]["video_id"] = uploaded_video_id
             hist["recent_creative_entries"][-1]["source_key"] = source_key
