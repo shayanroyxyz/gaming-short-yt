@@ -228,6 +228,18 @@ def _repair_title(title, game_label="GTA"):
     return value[:70].rstrip(" -—:?!") + ("?" if not value.endswith(("?", "!")) else "")
 
 
+def _format_series_title(title, series_label, series_number):
+    """Keep the curiosity hook visible first and the episode tag at the end."""
+    hook = _repair_title(title, "Gaming")
+    hook = re.sub(r"\s*\([^()]*\bMyth\s*#\d+\)\s*$", "", hook, flags=re.IGNORECASE)
+    tag = f"({series_label} #{int(series_number)})"
+    hook_limit = max(12, 100 - len(tag) - 1)
+    hook = hook[:hook_limit].rstrip(" -—:|")
+    if not hook.endswith(("?", "!")):
+        hook = hook.rstrip(".") + "?"
+    return f"{hook} {tag}"
+
+
 def _offline_package(fname, focus):
     """Conservative last-resort narration; makes no claims about unseen gameplay details."""
     stem = os.path.splitext(os.path.basename(fname))[0]
@@ -605,7 +617,8 @@ def _normalize_similarity_text(value):
 def _creative_similarity(left,right):
     # Ignore episode number and fixed series prefix; compare topic only.
     def topic(value):
-        return re.sub(r"^.*?#\s*\d+\s*:\s*", "", str(value or ""), count=1)
+        value = re.sub(r"^.*?#\s*\d+\s*:\s*", "", str(value or ""), count=1)
+        return re.sub(r"\s*\([^()]*#\s*\d+\)\s*$", "", value)
     a,b=_normalize_similarity_text(topic(left)),_normalize_similarity_text(topic(right))
     if not a or not b: return 0.0
     seq=SequenceMatcher(None,a,b,autojunk=False).ratio()
@@ -614,8 +627,13 @@ def _creative_similarity(left,right):
     return max(seq,overlap)
 
 def _duplicate_candidate(title,script,hist):
+    candidate_opener = " ".join(_normalize_similarity_text(title).split()[:4])
     for row in [x for x in hist.get("recent_creative_entries",[]) if isinstance(x,dict)][-50:]:
-        score=_creative_similarity(title,row.get("title",""))
+        previous_title = row.get("title", "")
+        previous_opener = " ".join(_normalize_similarity_text(previous_title).split()[:4])
+        if len(candidate_opener.split()) >= 3 and candidate_opener == previous_opener:
+            return f"repeated title opener: {candidate_opener!r}"
+        score=_creative_similarity(title,previous_title)
         if score>0.62: return f"title similarity {score:.3f} exceeds 0.62"
     for row in [x for x in hist.get("recent_scripts",[]) if isinstance(x,dict)][-50:]:
         score=_creative_similarity(script,row.get("script",""))
@@ -699,12 +717,12 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         "FACT CHECK: GTA VI launched on PS5 and Xbox Series X|S on November 19, 2026. Rockstar's official listing currently names those consoles only; no official PC release date is announced. Never say GTA VI has not launched on console, and never invent a deleted PC port, leak, cancellation, or release date. "
         f"Fresh DuckDuckGo gaming headlines (use only when directly relevant and clearly attributed; do not infer beyond the source): {headline_context}. "
         "If no credible fresh headline is available, do not invent current news; choose a clip-focused mystery grounded in the supplied frames. "
-        "Write naturally between 35 and 145 spoken words, targeting a finished voiceover of 14-58.5 seconds. Use as many or as few words as the story genuinely needs: make it gripping, complete, specific, and free of fluff. Never force a fixed word count or reject a strong script just because it is 80, 96, or 120 words. The FIRST SIX WORDS must be a concrete, startling curiosity hook directly tied to the strongest visible action in the supplied frames (the same action that opens the Short). Start with the object/action/payoff itself. Never begin with filler such as In this video, Have you ever wondered, Today we, or Let me show you. Escalate quickly and deliver a clear payoff. End the SPOKEN SCRIPT with a short, genuine gamer debate question, not a subscribe slogan. Make the final question grammatically loop into the opening by echoing the opening's first 2-4 words at the very end. Example structure: opening 'Would you survive this jump...' and ending '...after seeing that, would you?' Avoid forced or fake controversy. "
+        "Keep the hard safety window at 35-145 spoken words and 14-58.5 seconds, but aim for 65-95 words (~25-38 seconds) as the preferred pacing sweet spot. Treat that as a target, not a hard rejection rule; use fewer or more words only when the complete story genuinely needs it. The FIRST SIX WORDS must be a concrete, startling curiosity hook directly tied to the strongest visible action in the supplied frames (the same action that opens the Short). Start with the object/action/payoff itself. Never begin with filler such as In this video, Have you ever wondered, Today we, or Let me show you. Escalate quickly and deliver a clear payoff. End the SPOKEN SCRIPT with a short, genuine gamer debate question, not a subscribe slogan. Make the final question grammatically loop into the opening by echoing the opening's first 2-4 words at the very end. Example structure: opening 'Would you survive this jump...' and ending '...after seeing that, would you?' Avoid forced or fake controversy. "
         f"Filename: {clean_name}. Focus: {focus}. Current trend context: {hype_now}. Previous angle: {previous_angle}. "
         f"Channel's measured winning examples (titles/hooks/angles; use as evidence, do not copy): {winning_examples_text}. "
         f"Recent scripts to avoid:\\n{recent_avoid}\\n"
         f"Last 10 titles and opening hooks (avoid topic, wording, sentence shape, and hook pattern):\\n{recent_title_hooks}\\n"
-        "Never repeat the same topic angle or hook pattern twice in a row. Vary openings: mystery, challenge, "
+        "Never repeat the same topic angle or hook pattern twice in a row. Do not reuse the same first 3-5 title words or a stock opener such as 'GTA 6 Motion Data' across consecutive uploads; lead with a fresh, specific curiosity hook. Vary openings: mystery, challenge, 
         "counterintuitive fact, surprising claim, or a specific visual question. "
         "Return ONLY JSON keys creative_angle, hook, script, title, comment, ig_caption, tags. "
         "hook: 3-5 punchy words for the first-frame badge. title: under 70 characters, truthful, high-curiosity, "
@@ -748,7 +766,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
             "You are text-only: do not invent what happens in those windows or describe unseen objects, rooms, characters, or events. "
             "Use only the supplied filename, focus, reliable game facts, and timestamp evidence. "
             "If a specific truthful action beat cannot be stated, do not return generic filler. "
-            "Return the same strict JSON schema; keep narration naturally between 35 and 145 spoken words (14-58.5 seconds), with no fixed-length target."
+            "Return the same strict JSON schema; keep the hard narration limits at 35-145 spoken words (14-58.5 seconds), aiming for 65-95 words (~25-38 seconds) as the preferred sweet spot."
         )
         for provider in ("groq", "openrouter"):
             try:
@@ -1045,12 +1063,15 @@ if __name__ == "__main__":
             series_label = "Gaming Myth"
         else:
             series_label = re.sub(r"\s+", " ", focus_label.upper().replace("GTA6", "GTA 6").replace("GTA5", "GTA 5")).title().replace("Gta 6", "GTA 6").replace("Gta 5", "GTA 5") + " Myth"
-        title = f"{series_label} #{series_number}: {title}"[:100].rstrip()
-        top_hook = f"{series_label} #{series_number}: {top_hook}"[:100]
+        title = _format_series_title(title, series_label, series_number)
+        top_hook = re.sub(r"\s+", " ", str(top_hook or "")).strip()[:80]
         if hist.get("recent_creative_entries"):
             hist["recent_creative_entries"][-1]["title"] = title
             hist["recent_creative_entries"][-1]["series_number"] = series_number
-        rendered_path = render_full_bleed_short(local_clip, script, "final.mp4", top_hook=top_hook, creative_angle=creative_angle)
+        rendered_path = render_full_bleed_short(
+            local_clip, script, "final.mp4", top_hook=top_hook,
+            creative_angle=creative_angle, episode_pill=f"MYTH #{series_number}"
+        )
         if not os.path.isfile(rendered_path) or os.path.getsize(rendered_path) < 100_000:
             raise RuntimeError("Render step returned without a valid final video.")
         final_duration = float(subprocess.check_output(
