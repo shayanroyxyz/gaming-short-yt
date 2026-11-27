@@ -24,7 +24,8 @@
     "GTA 6 Motion Data",
     "High Speed Burst",
     "Motion Data Spikes",
-    "GTA 6 Console Lock"
+    "GTA 6 Console Lock",
+    "Five Motion Spikes"
   ],
   "recent_scripts": [
     {
@@ -136,6 +137,11 @@
       "source": "[GTA6]_Clip_316.mp4",
       "script": "November 19, 2026. That is the only date that matters right now. Rockstar\u2019s official listing names PS5 and Xbox Series X|S exclusively. No PC. No PS4. No Xbox One. Just next-gen hardware. While the community debates if Chapter 1 is too good to finish, the platform war is already decided. You cannot buy your way onto PC yet. The engine is locked to current-gen specs. So, if you are waiting for a day-one PC port to make your decision, you are waiting for a ghost. Is console-only the new standard for AAA open worlds? Let\u2019s debate the platform split in the comments, because November 19, 2026. After seeing that, would you?",
       "created_at": "2026-11-27T02:54:26.770411+00:00"
+    },
+    {
+      "source": "[GTA6]_Clip_316.mp4",
+      "script": "Five motion spikes at 3, 19, 22, 35, and 47 seconds. This is raw engine data from GTA 6, not a trailer. Each spike marks a moment where the physics engine calculates complex real-time inertia. It is not just graphics; it is the simulation working at full capacity. While players debate if Chapter 1 is too good to finish, this technical foundation proves why the wait feels painful. The engine handles chaotic stunts with unprecedented fluidity. That level of detail is rare in current-gen open worlds. The motion is too smooth to ignore. Is this the new standard for open-world chaos, or just a demo trick? Drop your theory below before the next update drops, because five motion spikes. After seeing that, would you?",
+      "created_at": "2026-11-27T05:06:53.977238+00:00"
     }
   ],
   "recent_creative_entries": [
@@ -253,6 +259,15 @@
       "series_number": 3,
       "video_id": "mDzKseOl1eg",
       "source_key": "pcloud:[GTA6]_Clip_316.mp4"
+    },
+    {
+      "title": "GTA 6 Myth #4: GTA 6 Motion Data: 5 Spikes Reveal Engine Truth?",
+      "hook": "Five Motion Spikes",
+      "angle": "story_fact",
+      "created_at": "2026-11-27T05:06:53.977215+00:00",
+      "series_number": 4,
+      "video_id": "Tau8f82iP4Y",
+      "source_key": "pcloud:[GTA6]_Clip_316.mp4"
     }
   ],
   "used_sources": [
@@ -280,7 +295,8 @@
     "pcloud:[GTA6]_Clip_339.mp4@65s",
     "pcloud:[GTA6]_Clip_339.mp4@130s",
     "pcloud:[GTA6]_Clip_316.mp4@195s",
-    "pcloud:[GTA6]_Clip_316.mp4@260s"
+    "pcloud:[GTA6]_Clip_316.mp4@260s",
+    "pcloud:[GTA6]_Clip_316.mp4@1040s"
   ],
   "uploaded_source_windows": [
     {
@@ -506,6 +522,15 @@
       "video_id": "mDzKseOl1eg",
       "privacy_status": "public",
       "uploaded_at": "2026-11-27T02:55:22.725028+00:00"
+    },
+    {
+      "hash": "5f4e86fba006f04bcd05e6d20a54d443d407754a49e9f70cc0ca14afb7eefcd4",
+      "source": "pcloud:[GTA6]_Clip_316.mp4",
+      "start_second": 1040.0,
+      "duration": 65.0,
+      "video_id": "Tau8f82iP4Y",
+      "privacy_status": "public",
+      "uploaded_at": "2026-11-27T05:08:03.583087+00:00"
     }
   ],
   "used_source_windows": [
@@ -634,6 +659,13 @@
       "duration": 65.0,
       "hash": "c27bb13b630aae542a30fce4f25d86a932e05a779a55c9a316ce3b65c2ff2be1",
       "video_id": "mDzKseOl1eg"
+    },
+    {
+      "source": "pcloud:[GTA6]_Clip_316.mp4",
+      "start_second": 1040.0,
+      "duration": 65.0,
+      "hash": "5f4e86fba006f04bcd05e6d20a54d443d407754a49e9f70cc0ca14afb7eefcd4",
+      "video_id": "Tau8f82iP4Y"
     }
   ],
   "published_source_files": [
