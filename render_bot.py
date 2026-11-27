@@ -16,7 +16,8 @@ MAIN_KB = {
         [{"text": "❓ Help"}, {"text": "❌ Cancel"}]
     ],
     "resize_keyboard": True,
-    "one_time_keyboard": True
+    "one_time_keyboard": False,
+    "is_persistent": False
 }
 
 TAG_KB = {
@@ -27,10 +28,12 @@ TAG_KB = {
         [{"text": "❌ Cancel"}]
     ],
     "resize_keyboard": True,
-    "one_time_keyboard": True
+    "one_time_keyboard": False,
+    "is_persistent": False
 }
 
-FOLDED_KB = {"remove_keyboard": True}
+# Keep the reply keyboard attached so Telegram can show its native keyboard toggle.
+FOLDED_KB = MAIN_KB
 
 def send(cid, text, kb=MAIN_KB):
     requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": cid, "text": text, "reply_markup": json.dumps(kb)}, timeout=15)
