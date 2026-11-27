@@ -15,7 +15,7 @@ KEYBOARD={"keyboard":[
  [{"text":"🎯 Focus: AUTO"},{"text":"✏️ Custom Focus"}],
  [{"text":"📊 Cloud & YT Status"},{"text":"🩺 Self-Repair Now"}],
  [{"text":"🗑️ Delete Last"},{"text":"❌ Cancel"}]],
- "resize_keyboard":True,"is_persistent":True}
+ "resize_keyboard":True,"one_time_keyboard":False,"is_persistent":False}
 
 def tg(method,payload=None,timeout=25):
  r=requests.post(f"https://api.telegram.org/bot{TOKEN}/{method}",data=payload or {},timeout=timeout)
