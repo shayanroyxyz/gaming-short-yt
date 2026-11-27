@@ -722,7 +722,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         f"Channel's measured winning examples (titles/hooks/angles; use as evidence, do not copy): {winning_examples_text}. "
         f"Recent scripts to avoid:\\n{recent_avoid}\\n"
         f"Last 10 titles and opening hooks (avoid topic, wording, sentence shape, and hook pattern):\\n{recent_title_hooks}\\n"
-        "Never repeat the same topic angle or hook pattern twice in a row. Do not reuse the same first 3-5 title words or a stock opener such as 'GTA 6 Motion Data' across consecutive uploads; lead with a fresh, specific curiosity hook. Vary openings: mystery, challenge, 
+        "Never repeat the same topic angle or hook pattern twice in a row. Do not reuse the same first 3-5 title words or a stock opener such as 'GTA 6 Motion Data' across consecutive uploads; lead with a fresh, specific curiosity hook. Vary openings: mystery, challenge, "
         "counterintuitive fact, surprising claim, or a specific visual question. "
         "Return ONLY JSON keys creative_angle, hook, script, title, comment, ig_caption, tags. "
         "hook: 3-5 punchy words for the first-frame badge. title: under 70 characters, truthful, high-curiosity, "
