@@ -25,7 +25,8 @@
     "High Speed Burst",
     "Motion Data Spikes",
     "GTA 6 Console Lock",
-    "Five Motion Spikes"
+    "Five Motion Spikes",
+    "GTA VI Is Out"
   ],
   "recent_scripts": [
     {
@@ -142,6 +143,11 @@
       "source": "[GTA6]_Clip_316.mp4",
       "script": "Five motion spikes at 3, 19, 22, 35, and 47 seconds. This is raw engine data from GTA 6, not a trailer. Each spike marks a moment where the physics engine calculates complex real-time inertia. It is not just graphics; it is the simulation working at full capacity. While players debate if Chapter 1 is too good to finish, this technical foundation proves why the wait feels painful. The engine handles chaotic stunts with unprecedented fluidity. That level of detail is rare in current-gen open worlds. The motion is too smooth to ignore. Is this the new standard for open-world chaos, or just a demo trick? Drop your theory below before the next update drops, because five motion spikes. After seeing that, would you?",
       "created_at": "2026-11-27T05:06:53.977238+00:00"
+    },
+    {
+      "source": "[GTA6]_Clip_316.mp4",
+      "script": "GTA VI is officially live. It launched on November 19th for PS5 and Xbox Series X|S. But here is the shock: Rockstar just shut down an unauthorized PC port. Yes, the community cracked the engine, but Take-Two pulled the plug within days. Meanwhile, Rockstar workers voted against a union, signaling a tense shift behind the scenes. We are watching raw motion data from the new console build, with high-energy spikes at thirty-six and fifty seconds. The physics are holding up, but the platform war is messy. Is the console-exclusive launch a smart move, or did Rockstar just make an enemy of the PC community? After seeing that, would you?",
+      "created_at": "2026-11-27T10:53:53.755563+00:00"
     }
   ],
   "recent_creative_entries": [
@@ -268,6 +274,15 @@
       "series_number": 4,
       "video_id": "Tau8f82iP4Y",
       "source_key": "pcloud:[GTA6]_Clip_316.mp4"
+    },
+    {
+      "title": "GTA 6 Myth #5: GTA VI Launched, But Rockstar Is in Trouble \u2014 What Happens Next?",
+      "hook": "GTA VI Is Out",
+      "angle": "story_fact",
+      "created_at": "2026-11-27T10:53:53.755546+00:00",
+      "series_number": 5,
+      "video_id": "hd6H3gNBBAg",
+      "source_key": "pcloud:[GTA6]_Clip_316.mp4"
     }
   ],
   "used_sources": [
@@ -296,7 +311,8 @@
     "pcloud:[GTA6]_Clip_339.mp4@130s",
     "pcloud:[GTA6]_Clip_316.mp4@195s",
     "pcloud:[GTA6]_Clip_316.mp4@260s",
-    "pcloud:[GTA6]_Clip_316.mp4@1040s"
+    "pcloud:[GTA6]_Clip_316.mp4@1040s",
+    "pcloud:[GTA6]_Clip_316.mp4@455s"
   ],
   "uploaded_source_windows": [
     {
@@ -531,6 +547,15 @@
       "video_id": "Tau8f82iP4Y",
       "privacy_status": "public",
       "uploaded_at": "2026-11-27T05:08:03.583087+00:00"
+    },
+    {
+      "hash": "2502c89c1976e9e16901e9dbd76a5d3c4f363d97cde362ccd63461573c3aa02d",
+      "source": "pcloud:[GTA6]_Clip_316.mp4",
+      "start_second": 455.0,
+      "duration": 65.0,
+      "video_id": "hd6H3gNBBAg",
+      "privacy_status": "public",
+      "uploaded_at": "2026-11-27T10:55:43.359283+00:00"
     }
   ],
   "used_source_windows": [
@@ -666,6 +691,13 @@
       "duration": 65.0,
       "hash": "5f4e86fba006f04bcd05e6d20a54d443d407754a49e9f70cc0ca14afb7eefcd4",
       "video_id": "Tau8f82iP4Y"
+    },
+    {
+      "source": "pcloud:[GTA6]_Clip_316.mp4",
+      "start_second": 455.0,
+      "duration": 65.0,
+      "hash": "2502c89c1976e9e16901e9dbd76a5d3c4f363d97cde362ccd63461573c3aa02d",
+      "video_id": "hd6H3gNBBAg"
     }
   ],
   "published_source_files": [
