@@ -10,12 +10,14 @@ REPO=os.environ.get("GITHUB_REPOSITORY","shayanroyxyz/gaming-short-yt").strip()
 GH_TOKEN=os.environ.get("GH_PAT","").strip() or os.environ.get("GITHUB_TOKEN","").strip()
 API="https://api.github.com"
 HEADERS={"Authorization":f"Bearer {GH_TOKEN}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"}
+# Telegram renders the native keyboard switch; keep the reply keyboard available
+# without forcing it open or auto-hiding it after a single button press.
 KEYBOARD={"keyboard":[
  [{"text":"🚀 Make Short Now"},{"text":"+ Add Video Link"}],
  [{"text":"🎯 Focus: AUTO"},{"text":"✏️ Custom Focus"}],
  [{"text":"📊 Cloud & YT Status"},{"text":"🩺 Self-Repair Now"}],
  [{"text":"🗑️ Delete Last"},{"text":"❌ Cancel"}]],
- "resize_keyboard":True,"one_time_keyboard":False,"is_persistent":False}
+ "is_persistent":False,"resize_keyboard":True,"one_time_keyboard":False}
 
 def tg(method,payload=None,timeout=25):
  r=requests.post(f"https://api.telegram.org/bot{TOKEN}/{method}",data=payload or {},timeout=timeout)

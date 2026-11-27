@@ -193,6 +193,51 @@ class PipelineRegressionTests(unittest.TestCase):
         parsed = main._parse_strict_ai_json(json.dumps(payload))
         self.assertEqual(len(parsed["script"].split()), 96)
 
+    def test_series_title_puts_hook_first_and_episode_tag_last(self):
+        title = main._format_series_title(
+            "Why Rockstar Locked This Secret Zone?", "GTA 6 Myth", 6
+        )
+        self.assertEqual(title, "Why Rockstar Locked This Secret Zone? (GTA 6 Myth #6)")
+
+    def test_title_similarity_ignores_series_suffix_and_rejects_repeated_openers(self):
+        self.assertGreater(
+            main._creative_similarity(
+                "Why Rockstar Locked This Secret Zone? (GTA 6 Myth #6)",
+                "Why Rockstar Locked This Secret Zone? (GTA 6 Myth #5)",
+            ), 0.95
+        )
+        reason = main._duplicate_candidate(
+            "GTA 6 Motion Data Reveals This Secret?", "",
+            {"recent_creative_entries": [{"title": "GTA 6 Motion Data Changed Everything? (GTA 6 Myth #5)"}]},
+        )
+        self.assertIn("repeated title opener", reason)
+
+    def test_ai_prompt_targets_65_to_95_words_but_keeps_flexible_limits(self):
+        with open(os.path.join(os.path.dirname(main.__file__), "main.py"), encoding="utf-8") as source_file:
+            source = source_file.read()
+        self.assertIn("65-95 words (~25-38 seconds)", source)
+        self.assertIn("35-145 spoken words", source)
+        self.assertIn("GTA 6 Motion Data", source)
+
+    def test_renderer_adds_episode_pill_and_dynamic_progress_bar(self):
+        graph = self._run_renderer_fixture({
+            0.0: self._metrics(18.0, True),
+            4.0: self._metrics(16.0, True),
+        })
+        self.assertIn("y=1916", graph)
+        self.assertIn("h=4", graph)
+        self.assertIn("1080*t/24.000", graph)
+        self.assertIn("textfile=/tmp/episode_pill.txt", graph)
+        self.assertIn("between(t,0,3)", graph)
+
+    def test_telegram_keyboard_uses_native_toggle_friendly_settings(self):
+        path = os.path.join(os.path.dirname(main.__file__), "telegram_bot.py")
+        with open(path, encoding="utf-8") as source_file:
+            source = source_file.read()
+        self.assertIn('"is_persistent":False', source)
+        self.assertIn('"resize_keyboard":True', source)
+        self.assertIn('"one_time_keyboard":False', source)
+
     def test_renderer_uses_best_combined_visual_fallback_without_quality_floor(self):
         graph = self._run_renderer_fixture({
             0.0: self._metrics(10.0, False, luma=200.0, contrast=80.0, saturation=18.0),

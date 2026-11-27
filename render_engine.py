@@ -298,7 +298,7 @@ def select_opening_window(src_video, ranked_starts, duration, label="visual-gate
 
 
 
-def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.mp4", top_hook="", creative_angle="clip_focused", voice_audio_override=None):
+def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.mp4", top_hook="", creative_angle="clip_focused", voice_audio_override=None, episode_pill=""):
     """Render a 14–58.5 second vertical Short with duration-matched action-first cuts."""
     if not os.path.isfile(src_video) or os.path.getsize(src_video) < 100_000:
         raise RuntimeError(f"Source video is missing or too small: {src_video}")
@@ -397,6 +397,9 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     hook_path = "/tmp/hook_banner.txt"
     with open(hook_path, "w", encoding="utf-8") as hook_file:
         hook_file.write(re.sub(r"\s+", " ", str(top_hook or "")).strip()[:100])
+    episode_path = "/tmp/episode_pill.txt"
+    with open(episode_path, "w", encoding="utf-8") as episode_file:
+        episode_file.write(re.sub(r"\s+", " ", str(episode_pill or "")).strip()[:40])
     cut_filters, cut_labels = [], []
     for index, cut_start in enumerate(cut_starts):
         label = f"cut{index}"
@@ -427,7 +430,13 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
         f"textfile={hook_path}:fontcolor=yellow:fontsize=64:box=1:"
         f"boxcolor=black@0.78:boxborderw=26:x=(w-text_w)/2:y=235:"
         f"enable='between(t,0,2.5)':alpha='if(lt(t,2.1),1,max(0,(2.5-t)/0.4))',"
-        f"ass={ass_path}[decorated];"
+        f"drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+        f"textfile={episode_path}:fontcolor=white:fontsize=34:box=1:"
+        f"boxcolor=black@0.58:boxborderw=14:x=38:y=56:"
+        f"enable='between(t,0,3)',"
+        f"ass={ass_path},"
+        f"drawbox=x=0:y=1916:w='min(1080,1080*t/{target_dur:.3f})':h=4:"
+        f"color=yellow@0.95:t=fill[decorated];"
         "[decorated]split=2[basevsrc][headvsrc];"
         "[basevsrc]fps=30,settb=AVTB,setpts=PTS-STARTPTS,format=yuv420p[basev];"
         "[headvsrc]trim=start=0:duration=0.35,fps=30,settb=AVTB,setpts=PTS-STARTPTS,format=yuv420p[headv];"
@@ -476,7 +485,7 @@ def render_full_bleed_short(src_video, script_text, out_video="/tmp/final_short.
     print(
         f"Rendered {output_duration:.2f}s Short; {cut_count} motion-ranked "
         f"{segment_dur:.2f}s cuts, peak-motion opening, 1.08x first-frame impact flash, "
-        "full-bleed 9:16, 64px yellow hook badge and 72px centered captions."
+        "full-bleed 9:16, 64px yellow hook badge, 34px episode pill, 4px animated progress bar and 72px centered captions."
     )
     return out_video
 
@@ -522,7 +531,7 @@ def run_ffmpeg_self_test():
         raise RuntimeError(f"Preflight output invalid: size={probe}, duration={duration:.3f}s")
     print(
         f"FFMPEG_PREFLIGHT_OK: {rendered}; video={probe}; duration={duration:.3f}s; "
-        "filters=punch-zoom,silenceremove,transition-pops,drawtext,ass,sidechaincompress,amix,acrossfade,xfade,loudnorm"
+        "filters=punch-zoom,silenceremove,transition-pops,episode-pill,progress-bar,drawtext,ass,sidechaincompress,amix,acrossfade,xfade,loudnorm"
     )
     return rendered
 
