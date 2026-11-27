@@ -213,9 +213,10 @@ class PipelineRegressionTests(unittest.TestCase):
         self.assertIn("repeated title opener", reason)
 
     def test_ai_prompt_targets_65_to_95_words_but_keeps_flexible_limits(self):
-        source = open(os.path.join(os.path.dirname(main.__file__), "main.py"), encoding="utf-8").read()
+        with open(os.path.join(os.path.dirname(main.__file__), "main.py"), encoding="utf-8") as source_file:
+            source = source_file.read()
         self.assertIn("65-95 words (~25-38 seconds)", source)
-        self.assertIn("35 and 145 spoken words", source)
+        self.assertIn("35-145 spoken words", source)
         self.assertIn("GTA 6 Motion Data", source)
 
     def test_renderer_adds_episode_pill_and_dynamic_progress_bar(self):
