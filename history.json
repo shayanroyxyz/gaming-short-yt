@@ -29,7 +29,8 @@
     "GTA VI Is Out",
     "Union Vote Shock",
     "Motion Spikes Reveal Truth",
-    "100M Sales In 48 Hours"
+    "100M Sales In 48 Hours",
+    "Engine Stress Test"
   ],
   "recent_scripts": [
     {
@@ -166,6 +167,11 @@
       "source": "[GTA6]_Clip_316.mp4",
       "script": "Hitting one hundred million sales in just two days. That is not a prediction; it is the current reality for the new Rockstar release on PS5 and Xbox Series X|S. The industry impact report confirms it is already one of the best-selling games ever, shaking up the market within a single week. While the community debates the AI race to clone its world for PC, the console-exclusive launch is dominating the charts. It proves that next-gen exclusives still hold massive power. Does this sales velocity guarantee a PC port, or does it prove console-only is safer? After seeing that sales spike, would you?",
       "created_at": "2026-11-28T04:46:34.043051+00:00"
+    },
+    {
+      "source": "[GTA6]_Clip_316.mp4",
+      "script": "Watch this specific burst at 61 seconds. The physics engine is handling a sudden, violent acceleration spike. This is not a cinematic cut; it is raw, real-time collision data from the console build. Notice how the vehicle responds immediately without lag. The simulation calculates inertia and impact in milliseconds. This level of responsiveness defines the new standard for open-world chaos. It is not just graphics; it is the engine working at full capacity to keep the world stable during high-speed stress. Would you survive this jump? After seeing that, would you?",
+      "created_at": "2026-11-28T10:27:24.691277+00:00"
     }
   ],
   "recent_creative_entries": [
@@ -328,6 +334,15 @@
       "series_number": 8,
       "video_id": "-nlJXqznDv8",
       "source_key": "pcloud:[GTA6]_Clip_316.mp4"
+    },
+    {
+      "title": "GTA 6 Physics: Real Time Stress Test? (GTA 6 Myth #9)",
+      "hook": "Engine Stress Test",
+      "angle": "clip_focused",
+      "created_at": "2026-11-28T10:27:24.691256+00:00",
+      "series_number": 9,
+      "video_id": "iLi4c5fwCkU",
+      "source_key": "pcloud:[GTA6]_Clip_316.mp4"
     }
   ],
   "used_sources": [
@@ -360,7 +375,8 @@
     "pcloud:[GTA6]_Clip_316.mp4@455s",
     "pcloud:[GTA6]_Clip_339.mp4@1040s",
     "pcloud:[GTA6]_Clip_339.mp4@780s",
-    "pcloud:[GTA6]_Clip_316.mp4@650s"
+    "pcloud:[GTA6]_Clip_316.mp4@650s",
+    "pcloud:[GTA6]_Clip_316.mp4@325s"
   ],
   "uploaded_source_windows": [
     {
@@ -631,6 +647,15 @@
       "video_id": "-nlJXqznDv8",
       "privacy_status": "public",
       "uploaded_at": "2026-11-28T04:47:29.513695+00:00"
+    },
+    {
+      "hash": "5d9fb47df11e5988804dd0581790d1089eef634d75786bf088c7199da9008140",
+      "source": "pcloud:[GTA6]_Clip_316.mp4",
+      "start_second": 325.0,
+      "duration": 65.0,
+      "video_id": "iLi4c5fwCkU",
+      "privacy_status": "public",
+      "uploaded_at": "2026-11-28T10:28:17.267749+00:00"
     }
   ],
   "used_source_windows": [
@@ -794,6 +819,13 @@
       "duration": 65.0,
       "hash": "b2e40904c25c002bb3d11ab218f51356ebcb664ba415a430912cdbb5f5fd979c",
       "video_id": "-nlJXqznDv8"
+    },
+    {
+      "source": "pcloud:[GTA6]_Clip_316.mp4",
+      "start_second": 325.0,
+      "duration": 65.0,
+      "hash": "5d9fb47df11e5988804dd0581790d1089eef634d75786bf088c7199da9008140",
+      "video_id": "iLi4c5fwCkU"
     }
   ],
   "published_source_files": [
