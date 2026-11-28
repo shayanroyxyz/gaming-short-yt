@@ -230,13 +230,23 @@ class PipelineRegressionTests(unittest.TestCase):
         self.assertIn("textfile=/tmp/episode_pill.txt", graph)
         self.assertIn("between(t,0,3)", graph)
 
-    def test_telegram_keyboard_uses_native_toggle_friendly_settings(self):
-        path = os.path.join(os.path.dirname(main.__file__), "telegram_bot.py")
-        with open(path, encoding="utf-8") as source_file:
+    def test_main_telegram_alerts_do_not_override_owner_keyboard(self):
+        source_path = os.path.join(os.path.dirname(main.__file__), "main.py")
+        with open(source_path, encoding="utf-8") as source_file:
             source = source_file.read()
-        self.assertIn('"is_persistent":False', source)
-        self.assertIn('"resize_keyboard":True', source)
-        self.assertIn('"one_time_keyboard":False', source)
+        self.assertNotIn("MAIN_KEYBOARD", source)
+        self.assertNotIn('"reply_markup"', source)
+        self.assertIn('"text": text}, timeout=15)', source)
+
+    def test_duplicate_retries_include_rejected_and_recent_titles(self):
+        source_path = os.path.join(os.path.dirname(main.__file__), "main.py")
+        with open(source_path, encoding="utf-8") as source_file:
+            source = source_file.read()
+        self.assertIn("rejected_title:", source)
+        self.assertIn("Last 10 recent titles:", source)
+        self.assertIn("DO NOT reuse any words or angles", source)
+        self.assertIn("temperature=0.95 if retry_context else 0.8", source)
+        self.assertIn('"temperature": 0.95 if retry_context else 0.8', source)
 
     def test_renderer_uses_best_combined_visual_fallback_without_quality_floor(self):
         graph = self._run_renderer_fixture({

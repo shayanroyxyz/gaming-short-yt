@@ -281,18 +281,6 @@ CAPTION_STYLES = [
     "FontName=DejaVu Sans,FontSize=25,Bold=1,PrimaryColour=&H00FFFF00,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=5"
 ]
 
-MAIN_KEYBOARD = {
-    "keyboard": [
-        [{"text": "🚀 Make Short Now"}, {"text": "➕ Add Video Link"}],
-        [{"text": "🔥 Live Hype"}, {"text": "📊 Cloud Status"}],
-        [{"text": "📈 YT Stats"}, {"text": "🗑️ Delete Last"}],
-        [{"text": "🎯 Focus: GTA 6"}, {"text": "🎯 Focus: Auto"}],
-        [{"text": "❓ Help"}, {"text": "❌ Cancel"}]
-    ],
-    "resize_keyboard": True,
-    "is_persistent": True
-}
-
 def deliver_to_telegram(text, video_path=None, ig_caption=""):
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
@@ -301,7 +289,7 @@ def deliver_to_telegram(text, video_path=None, ig_caption=""):
         return
     try:
         if chat_id:
-            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": text, "reply_markup": json.dumps(MAIN_KEYBOARD)}, timeout=15)
+            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": text}, timeout=15)
             if video_path and os.path.exists(video_path):
                 with open(video_path, "rb") as vf:
                     requests.post(f"https://api.telegram.org/bot{token}/sendVideo", data={"chat_id": chat_id, "caption": ig_caption[:1000]}, files={"video": vf}, timeout=60)
@@ -552,7 +540,7 @@ def _parse_strict_ai_json(raw):
         data["title"] = _repair_title(title, "Gaming")
     return data
 
-def _generate_text_fallback(prompt, provider):
+def _generate_text_fallback(prompt, provider, temperature=0.8):
     """Free text-only fallback when Gemini's visual endpoint is unavailable."""
     if provider == "groq":
         key = os.environ.get("GROQ_API_KEY", "").strip() if _provider_enabled("groq") else ""
@@ -565,7 +553,7 @@ def _generate_text_fallback(prompt, provider):
                     candidate = requests.post(
                         "https://api.groq.com/openai/v1/chat/completions",
                         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                        json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.8},
+                        json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": temperature},
                         timeout=35
                     )
                     if candidate.status_code == 200:
@@ -593,7 +581,7 @@ def _generate_text_fallback(prompt, provider):
                 candidate = requests.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                    json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.8},
+                    json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": temperature},
                     timeout=35
                 )
                 if candidate.status_code == 200:
@@ -659,7 +647,7 @@ def fetch_current_gaming_headlines():
     except Exception as exc: print(f"[news] DuckDuckGo News unavailable: {type(exc).__name__}",flush=True)
     return headlines[:3]
 
-def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
+def analyze_clip_and_generate_package(fname, local_clip, hist, focus, retry_context=""):
     """Use sampled frames from the actual source clip; fail closed if visual analysis is unavailable."""
     gem_key = os.environ.get("GEMINI_API_KEY", "").strip() if _provider_enabled("gemini") else ""
     duration_text = subprocess.check_output(
@@ -730,6 +718,8 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         "comment: one short natural gamer debate question tied to this video; invite a real opinion, not spam. The spoken script must end on its debate question, never a subscribe slogan. "
         "ig_caption short; tags array. No markdown fences."
     )
+    if retry_context:
+        prompt += "\n\nANTI-DUPLICATE RETRY (temperature 0.95): " + retry_context
     parts = [{"text": prompt}]
     for path in frame_paths:
         with open(path, "rb") as image_file:
@@ -738,7 +728,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
     if gem_key:
         model, raw = _gemini_generate(
             gem_key, parts,
-            {"temperature": 0.8, "responseMimeType": "application/json"}
+            {"temperature": 0.95 if retry_context else 0.8, "responseMimeType": "application/json"}
         )
         if raw:
             try:
@@ -770,7 +760,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         )
         for provider in ("groq", "openrouter"):
             try:
-                fallback_raw = _generate_text_fallback(fallback_prompt, provider)
+                fallback_raw = _generate_text_fallback(fallback_prompt, provider, temperature=0.95 if retry_context else 0.8)
                 if not fallback_raw:
                     continue
                 candidate = _parse_strict_ai_json(fallback_raw)
@@ -796,7 +786,7 @@ def analyze_clip_and_generate_package(fname, local_clip, hist, focus):
         script += " After seeing that, would you?"
     comment = data.get("comment", "").strip() or "Would you try this yourself, or play it safe?"
     duplicate_reason=_duplicate_candidate(title,script,hist)
-    if duplicate_reason: raise RuntimeError("DUPLICATE_CANDIDATE: "+duplicate_reason)
+    if duplicate_reason: raise RuntimeError("DUPLICATE_CANDIDATE: "+duplicate_reason+" | rejected_title: "+title)
     comment = data["comment"].strip()
     angle = data["creative_angle"].strip().lower()
     creative_history = hist.setdefault("recent_creative_entries", [])
@@ -817,11 +807,32 @@ def generate_viral_package(fname, hist, focus, local_clip=None):
     if not local_clip:
         raise RuntimeError("A local gameplay clip is required for visual script analysis.")
     errors=[]
+    retry_context = ""
     for attempt in range(1,4):
-        try: return analyze_clip_and_generate_package(fname,local_clip,hist,focus)
+        try:
+            return analyze_clip_and_generate_package(
+                fname, local_clip, hist, focus, retry_context=retry_context
+            )
         except RuntimeError as exc:
-            if not str(exc).startswith("DUPLICATE_CANDIDATE:"): raise
-            errors.append(str(exc)); print(f"[anti-duplicate] Rejected candidate {attempt}/3; regenerating: {exc}",flush=True)
+            message = str(exc)
+            if not message.startswith("DUPLICATE_CANDIDATE:"):
+                raise
+            errors.append(message)
+            rejected_title = message.split(" | rejected_title: ", 1)[-1].strip()
+            recent_titles = [
+                str(row.get("title", "")).strip()
+                for row in hist.get("recent_creative_entries", [])
+                if isinstance(row, dict) and str(row.get("title", "")).strip()
+            ][-10:]
+            recent_title_block = "\n".join(f"- {title}" for title in recent_titles) or "- (none recorded)"
+            retry_context = (
+                f"Rejected title: {rejected_title}\n"
+                f"Last 10 recent titles:\n{recent_title_block}\n"
+                "DO NOT reuse any words or angles from these recent titles; pick a completely different gameplay topic "
+                "(e.g., vehicle physics, NPC AI behavior, police chase mechanics, hidden map Easter eggs, or speed stunts). "
+                "Change the central subject, not just the wording. Keep the result truthful to the available gameplay evidence."
+            )
+            print(f"[anti-duplicate] Rejected candidate {attempt}/3; retrying at temperature 0.95 with rejected and recent titles.",flush=True)
     raise RuntimeError("All three candidates were too similar to the last 50 entries; refusing to publish. "+errors[-1])
 
 def source_window_hash(source_filename, start_second, duration):
