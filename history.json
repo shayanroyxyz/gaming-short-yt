@@ -27,7 +27,8 @@
     "GTA 6 Console Lock",
     "Five Motion Spikes",
     "GTA VI Is Out",
-    "Union Vote Shock"
+    "Union Vote Shock",
+    "Motion Spikes Reveal Truth"
   ],
   "recent_scripts": [
     {
@@ -154,6 +155,11 @@
       "source": "[GTA6]_Clip_339.mp4",
       "script": "Rockstar workers just voted NO. You might be grinding through the new engine, but the studio behind it is facing a major internal shift. Employees at Rockstar Games overwhelmingly rejected a union recognition effort. This is huge context for your play session right now. While you are exploring the open world, the developers who built it chose a new path. It creates a tense backdrop to the launch hype. Does the workplace impact the game? That is the debate. Rockstar workers just voted NO. After seeing that, would you?",
       "created_at": "2026-11-27T15:05:02.009657+00:00"
+    },
+    {
+      "source": "[GTA6]_Clip_339.mp4",
+      "script": "Motion spikes hit at fourteen and seventeen seconds. We see raw engine stress in the console build, not a trailer cut. The physics engine calculates real-time inertia during these chaotic bursts. It is a visible limit test, showing how the new tech handles sudden acceleration without breaking. The motion is too smooth to ignore, proving the simulation depth is real. Is this the new standard for open-world chaos, or just a demo trick? Drop your theory below before the next update drops, because motion spikes hit at fourteen seconds. After seeing that, would you?",
+      "created_at": "2026-11-28T00:34:59.096536+00:00"
     }
   ],
   "recent_creative_entries": [
@@ -298,6 +304,15 @@
       "series_number": 6,
       "video_id": "jE5AAonyHqg",
       "source_key": "pcloud:[GTA6]_Clip_339.mp4"
+    },
+    {
+      "title": "GTA 6 Motion Spikes: 14s vs 17s | Real Physics? (GTA 6 Myth #7)",
+      "hook": "Motion Spikes Reveal Truth",
+      "angle": "clip_focused",
+      "created_at": "2026-11-28T00:34:59.096516+00:00",
+      "series_number": 7,
+      "video_id": "v5wZqKgOzQs",
+      "source_key": "pcloud:[GTA6]_Clip_339.mp4"
     }
   ],
   "used_sources": [
@@ -328,7 +343,8 @@
     "pcloud:[GTA6]_Clip_316.mp4@260s",
     "pcloud:[GTA6]_Clip_316.mp4@1040s",
     "pcloud:[GTA6]_Clip_316.mp4@455s",
-    "pcloud:[GTA6]_Clip_339.mp4@1040s"
+    "pcloud:[GTA6]_Clip_339.mp4@1040s",
+    "pcloud:[GTA6]_Clip_339.mp4@780s"
   ],
   "uploaded_source_windows": [
     {
@@ -581,6 +597,15 @@
       "video_id": "jE5AAonyHqg",
       "privacy_status": "public",
       "uploaded_at": "2026-11-27T15:06:06.094743+00:00"
+    },
+    {
+      "hash": "dee0c8815c957275c909a49d8da8798d48bb7dbdc0c82aca8a2e7f0433d3d099",
+      "source": "pcloud:[GTA6]_Clip_339.mp4",
+      "start_second": 780.0,
+      "duration": 65.0,
+      "video_id": "v5wZqKgOzQs",
+      "privacy_status": "public",
+      "uploaded_at": "2026-11-28T00:36:17.985705+00:00"
     }
   ],
   "used_source_windows": [
@@ -730,6 +755,13 @@
       "duration": 65.0,
       "hash": "991d232d5cd4c0ae5c88d9ed74021d28f047b8fe0b0e7ae5da557291dfefb8df",
       "video_id": "jE5AAonyHqg"
+    },
+    {
+      "source": "pcloud:[GTA6]_Clip_339.mp4",
+      "start_second": 780.0,
+      "duration": 65.0,
+      "hash": "dee0c8815c957275c909a49d8da8798d48bb7dbdc0c82aca8a2e7f0433d3d099",
+      "video_id": "v5wZqKgOzQs"
     }
   ],
   "published_source_files": [
